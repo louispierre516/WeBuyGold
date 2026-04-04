@@ -6,10 +6,12 @@ import { logAudit } from "../utils/auditLogger";
 
 
 export default function Transactions() {
-  const { transactions, addTransaction, deleteTransaction } =
+  const { transactions, deleteTransaction } =
     useTransactions();
+  const { profile } = useAuth();
 
   const today = new Date().toISOString().split("T")[0];
+  const [loading, setLoading] = useState(true);
   const {activeStore, stores} = useStore();
   const [date, setDate] = useState(today);
   const [payee, setPayee] = useState("");
@@ -19,6 +21,46 @@ export default function Transactions() {
   const [notes, setNotes] = useState("");
   const [store, setStore] = useState(activeStore);
   const { user, logout } = useAuth();
+
+  useEffect(() => {
+    if (profile) {
+      fetchTransactions();
+    }
+  }, [profile]);
+
+
+  const fetchTransactions = async () => {
+    setLoading(true);
+
+    let query = supabase
+      .from("transactions")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    // Admin sees all
+    if (profile.role !== "admin") {
+      query = query.eq("store_id", profile.store_id);
+    }
+
+    const { data, error } = await query;
+
+    if (!error) setTransactions(data);
+
+    setLoading(false);
+  };
+  const addTransaction = async (formData) => {
+    const { error } = await supabase
+      .from("transactions")
+      .insert([
+        {
+          ...formData,
+          user_id: profile.id,
+          store_id: profile.store_id,
+        },
+      ]);
+
+    if (!error) fetchTransactions();
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -274,6 +316,30 @@ export default function Transactions() {
             </div>
           </div>
         ))}
+
+        <div className="mt-6 space-y-4">
+        {transactions.map((t) => (
+          <div
+            key={t.id}
+            className="p-4 border rounded-lg bg-white shadow"
+          >
+            <div className="flex justify-between">
+              <span>{t.date}</span>
+              <span className="font-semibold">
+                ${Number(t.amount).toFixed(2)}
+              </span>
+            </div>
+
+            <div className="text-sm text-gray-500">
+              {t.metal_type} • {t.weight}g
+            </div>
+
+            <div className="text-xs text-gray-400">
+              {t.locked ? "Locked" : "Editable"}
+            </div>
+          </div>
+        ))}
+      </div>
       </div>
     </div>
   );

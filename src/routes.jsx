@@ -12,41 +12,56 @@ import AppLayout from "./layout/AppLayout";
 import Reconciliation from "./pages/Reconciliation";
 import Audit from "./pages/Audit";
 import Stores from "./pages/Stores";
-import ProtectedRoute from "./ProtectedRoute";
+import ProtectedRoute from "./components/ProtectedRoute";
+import { useAuth } from "./context/AuthContext";
 
 export default function AppRoutes() {
+  const { user } = useAuth();
+
   return (
     <BrowserRouter>
       <Routes>
         {/* Public */}
-        <Route path="/login" element={<Login />} />
+        <Route
+          path="/login"
+          element={!user ? <Login /> : <Navigate to="/" />} />
 
         {/* App Layout Wrapper */}
-        <Route path="/" element={<AppLayout />}>
+
+        <Route path="/" element={
+          <AppLayout />
+        }>
           <Route index element={<Dashboard />} />
           <Route path="transactions" element={
-              <Transactions/>}/>
+            <ProtectedRoute allowedRoles={["admin", "buyer"]}>
+              <Transactions />
+            </ProtectedRoute>
+          } />
           <Route path="categories" element={<Categories />} />
           <Route path="reports" element={<Reports />} />
           <Route path="payment-methods" element={<PaymentMethods />} />
-          <Route path="stores" element={<Stores />} />
-          <Route path="users" element={<Users />} />
+          <Route path="stores" element={<ProtectedRoute allowedRoles={['Admin']}><Stores /></ProtectedRoute>} />
+          <Route path="users" element={<ProtectedRoute allowedRoles={['Admin']}><Users /></ProtectedRoute>} />
           <Route path="reconciliation" element={
-              <Reconciliation />}/>
+            <ProtectedRoute allowedRoles={["admin", "cashier"]}>
+              <Reconciliation />
+            </ProtectedRoute>
+          } />
           <Route path="confirmations" element={<Confirmations />} />
           <Route
             path="/audit"
             element={
-                <Audit />
+              <ProtectedRoute allowedRoles={['Admin']}><Audit /></ProtectedRoute>
             }
           />
         </Route>
 
+
         {/* Catch All */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
       </Routes>
     </BrowserRouter>
   );
 }
-            // <ProtectedRoute allowedRoles={["confirmer", "admin"]}>
-            // </ProtectedRoute>} />
+// <ProtectedRoute allowedRoles={["confirmer", "admin"]}>
+// </ProtectedRoute>} />
