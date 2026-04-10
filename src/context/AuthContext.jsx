@@ -8,6 +8,7 @@ export const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null);
   const [session, setSession] = useState(null);
   const [role, setRole] = useState(null);
+  const [storeId, setStore] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchUserRole = async (userId) => {
@@ -25,6 +26,20 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const fetchUserStore = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("store_id")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (!error && data) setStore(data.store_id);
+      else setStore(null);
+    } catch {
+      setStore(null);
+    }
+  };
 
   const login = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -33,7 +48,7 @@ export const AuthProvider = ({ children }) => {
     setUser(data.user);
     setSession(data.session);
     await fetchUserRole(data.user.id);
-
+    await fetchUserStore(data.user.id);
     return { data, error };
   };
 
@@ -75,6 +90,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     fetchUserRole(user.id)
+    fetchUserStore(user.id)
     
   }, [user]);
 
@@ -82,6 +98,7 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider
       value={{
         user,
+        storeId,
         session,
         role,
         login,

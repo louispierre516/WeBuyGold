@@ -7,8 +7,7 @@ import { supabase } from "../lib/supabase";
 
 
 export default function Transactions() {
-  const { transactions, deleteTransaction } =
-    useTransactions();
+  // const { transactions, deleteTransaction } = useTransactions();
   const today = new Date().toISOString().split("T")[0];
   const [loading, setLoading] = useState(true);
   const {activeStore, stores} = useStore();
@@ -19,7 +18,8 @@ export default function Transactions() {
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
   const [store, setStore] = useState(activeStore);
-  const { user, role, logout } = useAuth();
+  const [transactions, setTransactions] = useState([]);
+  const { user, role, storeId, logout } = useAuth();
 
   useEffect(() => {
     if (user) {
@@ -38,12 +38,12 @@ export default function Transactions() {
 
     // Admin sees all
     if (role !== "admin") {
-      query = query.eq("store_id", user.store_id);
+      query = query.eq("store_id", storeId);
     }
 
     const { data, error } = await query;
 
-    //if (!error) setTransactions(data);
+    if (!error) setTransactions(data);
 
     setLoading(false);
   };
@@ -53,13 +53,24 @@ export default function Transactions() {
       .from("transactions")
       .insert([
         {
-          ...formData,
+          date,
+          payee,
+          metal_type: material,
+          weight: Number(weight),
+          amount: Number(amount),
+          note: notes, 
           user_id: user.id,
-          store_id: user.store_id,
+          store_id: storeId,
         },
       ]);
-
+      console.error(error);
+      
     if (!error) fetchTransactions();
+  };
+
+  const deleteTransaction = async (id) => {
+    await supabase.from("transactions").delete().eq("id", id);
+    fetchTransactions();
   };
 
   const handleSubmit = (e) => {
@@ -72,7 +83,7 @@ export default function Transactions() {
       weight: Number(weight),
       amount: Number(amount),
       notes,
-      store,
+      storeId,
       enteredBy: user.email,
       locked: false
     });
