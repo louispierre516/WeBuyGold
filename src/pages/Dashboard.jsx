@@ -1,5 +1,5 @@
 import { useTransactions } from "../context/TransactionsContext";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/useAuth";
 import { useStore } from "../context/StoreContext";
 
 export default function Dashboard() {

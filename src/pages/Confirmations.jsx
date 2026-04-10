@@ -1,5 +1,5 @@
 import { useTransactions } from "../context/TransactionsContext";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/useAuth";
 
 export default function Confirmations() {
   const { transactions, confirmTransaction } = useTransactions();

@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/useAuth";
 import { useStore } from "../context/StoreContext";
 
 
 export default function AppLayout() {
     const [isOpen, setIsOpen] = useState(false);
-    const { user, logout } = useAuth();
+    const { user, logout, role } = useAuth();
     const navigate = useNavigate();
     const { stores, activeStore, setActiveStore } = useStore();    
 
@@ -33,14 +33,14 @@ export default function AppLayout() {
                     weTrack Gold
                 </h2>
                 <p className="text-sm text-gray-500 mb-6">
-                    {user?.email} ({user?.role})
+                    {user?.email} ({role})
                 </p>
                 <nav className="space-y-3">
                     <Link to="/" className="block hover:bg-gray-800 p-2 rounded">Dashboard</Link>
                     <Link to="/transactions" className="block hover:bg-gray-800 p-2 rounded">Transactions</Link>
                     <Link to="/reports" className="block hover:bg-gray-800 p-2 rounded">Reports</Link>
                     <Link to="/confirmations" className="block hover:bg-gray-800 p-2 rounded">Confirmations</Link>
-                    {user?.role === "Admin" && (<>
+                    {role === "admin" && (<>
 
                         <Link to="/categories" className="block hover:bg-gray-800 p-2 rounded">
                             Categories
@@ -119,7 +119,7 @@ export default function AppLayout() {
                                 {user?.email}
                             </p>
                             <p className="text-xs text-gray-500">
-                                {user?.role}
+                                {role}
                             </p>
                         </div>
 

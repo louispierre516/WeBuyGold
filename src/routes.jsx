@@ -13,10 +13,10 @@ import Reconciliation from "./pages/Reconciliation";
 import Audit from "./pages/Audit";
 import Stores from "./pages/Stores";
 import ProtectedRoute from "./components/ProtectedRoute";
-import { useAuth } from "./context/AuthContext";
+import { useAuth } from "./context/useAuth";
 
 export default function AppRoutes() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();  
 
   return (
     <BrowserRouter>
@@ -40,8 +40,16 @@ export default function AppRoutes() {
           <Route path="categories" element={<Categories />} />
           <Route path="reports" element={<Reports />} />
           <Route path="payment-methods" element={<PaymentMethods />} />
-          <Route path="stores" element={<ProtectedRoute allowedRoles={['Admin']}><Stores /></ProtectedRoute>} />
-          <Route path="users" element={<ProtectedRoute allowedRoles={['Admin']}><Users /></ProtectedRoute>} />
+          <Route path="stores" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <Stores />
+            </ProtectedRoute>
+          } />
+          <Route path="users" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <Users />
+            </ProtectedRoute>
+          } />
           <Route path="reconciliation" element={
             <ProtectedRoute allowedRoles={["admin", "cashier"]}>
               <Reconciliation />
@@ -51,7 +59,7 @@ export default function AppRoutes() {
           <Route
             path="/audit"
             element={
-              <ProtectedRoute allowedRoles={['Admin']}><Audit /></ProtectedRoute>
+              <ProtectedRoute allowedRoles={['admin']}><Audit /></ProtectedRoute>
             }
           />
         </Route>

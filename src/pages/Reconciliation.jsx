@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useStore } from "../context/StoreContext";
 import { useTransactions } from "../context/TransactionsContext";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/useAuth";
 import { getDailySummaries, saveDailySummaries } from "../utils/dailySummaryService";
 import { getOrCreateDailySummary } from "../utils/dailySummaryService";
 

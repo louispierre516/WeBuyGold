@@ -1,15 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTransactions } from "../context/TransactionsContext";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/useAuth";
 import { useStore } from "../context/StoreContext";
 import { logAudit } from "../utils/auditLogger";
+import { supabase } from "../lib/supabase";
 
 
 export default function Transactions() {
   const { transactions, deleteTransaction } =
     useTransactions();
-  const { profile } = useAuth();
-
   const today = new Date().toISOString().split("T")[0];
   const [loading, setLoading] = useState(true);
   const {activeStore, stores} = useStore();
@@ -20,13 +19,13 @@ export default function Transactions() {
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
   const [store, setStore] = useState(activeStore);
-  const { user, logout } = useAuth();
+  const { user, role, logout } = useAuth();
 
   useEffect(() => {
-    if (profile) {
+    if (user) {
       fetchTransactions();
     }
-  }, [profile]);
+  }, [user]);
 
 
   const fetchTransactions = async () => {
@@ -38,24 +37,25 @@ export default function Transactions() {
       .order("created_at", { ascending: false });
 
     // Admin sees all
-    if (profile.role !== "admin") {
-      query = query.eq("store_id", profile.store_id);
+    if (role !== "admin") {
+      query = query.eq("store_id", user.store_id);
     }
 
     const { data, error } = await query;
 
-    if (!error) setTransactions(data);
+    //if (!error) setTransactions(data);
 
     setLoading(false);
   };
+  
   const addTransaction = async (formData) => {
     const { error } = await supabase
       .from("transactions")
       .insert([
         {
           ...formData,
-          user_id: profile.id,
-          store_id: profile.store_id,
+          user_id: user.id,
+          store_id: user.store_id,
         },
       ]);
 
