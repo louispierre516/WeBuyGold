@@ -9,42 +9,53 @@ import {
   Pie,
   Cell
 } from "recharts";
-import { useTransactions } from "../context/TransactionsContext";
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
 import { useStore } from "../context/StoreContext";
 
 export default function Reports() {
-  const { transactions } = useTransactions();
+  const [transactions, setTransactions] = useState([]);
   const { activeStore } = useStore();
 
-  const filtered =
-    activeStore === "All"
-      ? transactions
-      : transactions.filter(
-          (t) => t.store === activeStore
-        );
+  useEffect(() => {
+    fetchTransactions();
+  }, [activeStore]);
+
+  const fetchTransactions = async () => {
+    let query = supabase.from("transactions").select("*");
+
+    if (activeStore !== "All") {
+      query = query.eq("store", activeStore);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error(error);
+    } else {
+      setTransactions(data);
+    }
+  };
 
   // Daily Sales
   const dailyMap = {};
-  filtered.forEach((t) => {
+  transactions.forEach((t) => {
     dailyMap[t.date] =
-      (dailyMap[t.date] || 0) + t.amount;
+      (dailyMap[t.date] || 0) + Number(t.amount);
   });
 
   const dailyData = Object.entries(dailyMap).map(
-    ([date, total]) => ({
-      date,
-      total
-    })
+    ([date, total]) => ({ date, total })
   );
 
   // Material Split
-  const goldTotal = filtered
+  const goldTotal = transactions
     .filter((t) => t.material === "Gold")
-    .reduce((sum, t) => sum + t.amount, 0);
+    .reduce((sum, t) => sum + Number(t.amount), 0);
 
-  const silverTotal = filtered
+  const silverTotal = transactions
     .filter((t) => t.material === "Silver")
-    .reduce((sum, t) => sum + t.amount, 0);
+    .reduce((sum, t) => sum + Number(t.amount), 0);
 
   const pieData = [
     { name: "Gold", value: goldTotal },
