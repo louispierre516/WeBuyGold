@@ -1,87 +1,125 @@
 import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
 import { useStore } from "../context/StoreContext";
-import { useTransactions } from "../context/TransactionsContext";
 import { useAuth } from "../context/useAuth";
-import { getDailySummaries, saveDailySummaries } from "../utils/dailySummaryService";
 import { getOrCreateDailySummary } from "../utils/dailySummaryService";
 
 export default function Reconciliation() {
-  const { transactions, confirmTransaction } = useTransactions();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { stores, activeStore, setActiveStore } = useStore();
 
+  const [transactions, setTransactions] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [cashCounted, setCashCounted] = useState("");
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
   );
 
-  const filtered = transactions.filter(
-    (t) =>
-      t.date === selectedDate &&
-      (t.store === activeStore || activeStore === "All")
-  );
-  const today = selectedDate;
+  /*
+   * Fetch transactions for selected store + date
+   */
+  useEffect(() => {
+    if (!activeStore || activeStore === "All") return;
 
-  const totalCash = filtered.reduce(
+    const fetchTransactions = async () => {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("*")
+        .eq("store", activeStore)
+        .eq("date", selectedDate);
+
+      if (error) {
+        console.error("Transaction fetch error:", error);
+      } else {
+        setTransactions(data);
+      }
+    };
+
+    fetchTransactions();
+  }, [activeStore, selectedDate]);
+
+  /*
+   * Get or create daily summary
+   */
+  useEffect(() => {
+    if (!activeStore || activeStore === "All") return;
+
+    const loadSummary = async () => {
+      const result = await getOrCreateDailySummary(
+        activeStore,
+        selectedDate
+      );
+      setSummary(result);
+    };
+
+    loadSummary();
+  }, [activeStore, selectedDate]);
+
+  /*
+   * Calculations
+   */
+  const totalCash = transactions.reduce(
     (sum, t) => sum + Number(t.amount),
     0
   );
 
-  const totalGold = filtered
+  const totalGold = transactions
     .filter((t) => t.material === "Gold")
     .reduce((sum, t) => sum + Number(t.weight), 0);
 
-  const totalSilver = filtered
+  const totalSilver = transactions
     .filter((t) => t.material === "Silver")
     .reduce((sum, t) => sum + Number(t.weight), 0);
 
-  const storeTransactions = transactions.filter(
-    (t) => t.store === activeStore && t.date === today
-  );
+  /*
+   * Confirm & Lock Day
+   */
+  const handleConfirm = async () => {
+    if (!summary) {
+      alert("No summary available.");
+      return;
+    }
 
-  const totalOutput = storeTransactions.reduce(
-    (sum, t) => sum + Number(t.amount),
-    0
-  );
+    if (!cashCounted) {
+      alert("Enter physical cash counted.");
+      return;
+    }
 
-  const summary = getOrCreateDailySummary(activeStore, today);
-
-  const expectedEndFloat =
-    summary.startFloat - totalOutput - summary.officeExpenses;
-  const handleConfirm = () => {
-
-    const summaries = getDailySummaries();
-
-    const updated = summaries.map((s) =>
-      s.store === activeStore && s.date === today
-        ? {
-          ...s,
-          endFloatConfirmed: Number(actualEndFloat),
+    try {
+      // 1️⃣ Lock summary
+      const { error: summaryError } = await supabase
+        .from("daily_summaries")
+        .update({
+          end_float_confirmed: Number(cashCounted),
           locked: true
-        }
-        : s
-    );
+        })
+        .eq("id", summary.id);
 
-    saveDailySummaries(updated);
+      if (summaryError) throw summaryError;
 
-    const updatedTransactions = transactions.map((t) =>
-      t.store === activeStore && t.date === today
-        ? { ...t, locked: true }
-        : t
-    );
+      // 2️⃣ Lock transactions
+      const { error: txError } = await supabase
+        .from("transactions")
+        .update({ locked: true })
+        .eq("store", activeStore)
+        .eq("date", selectedDate);
 
-    localStorage.setItem(
-      "transactions",
-      JSON.stringify(updatedTransactions)
-    );
+      if (txError) throw txError;
 
-    logAudit("Day Confirmed", {
-      store: activeStore,
-      date: today,
-      expectedEndFloat,
-      actualEndFloat
-    });
-    alert("Day Confirmed & Locked");
+      alert("Day Confirmed & Locked");
+
+      // Refresh
+      const refreshedSummary =
+        await getOrCreateDailySummary(
+          activeStore,
+          selectedDate
+        );
+
+      setSummary(refreshedSummary);
+    } catch (err) {
+      console.error("Confirm error:", err);
+      alert("Error locking day.");
+    }
   };
 
   return (
@@ -115,9 +153,11 @@ export default function Reconciliation() {
             }
             className="border rounded-lg px-2 py-1 text-sm"
           >
-            <option key={"All"}>All</option>
+            <option>All</option>
             {stores.map((store) => (
-              <option key={store}>{store}</option>
+              <option key={store.id}>
+                {store.name}
+              </option>
             ))}
           </select>
         </div>
@@ -160,6 +200,7 @@ export default function Reconciliation() {
             setCashCounted(e.target.value)
           }
           className="border p-2 rounded w-full"
+          disabled={summary?.locked}
         />
       </div>
 
@@ -181,12 +222,20 @@ export default function Reconciliation() {
         </div>
       )}
 
-      <button
-        onClick={handleConfirm}
-        className="bg-green-600 text-white px-4 py-2 rounded"
-      >
-        Confirm & Lock Day
-      </button>
+      {!summary?.locked && (
+        <button
+          onClick={handleConfirm}
+          className="bg-green-600 text-white px-4 py-2 rounded"
+        >
+          Confirm & Lock Day
+        </button>
+      )}
+
+      {summary?.locked && (
+        <p className="text-green-600 font-semibold">
+          Day is Locked
+        </p>
+      )}
     </div>
   );
 }

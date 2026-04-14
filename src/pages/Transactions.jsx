@@ -35,6 +35,7 @@ export default function Transactions() {
       .from("transactions")
       .select("*")
       .order("created_at", { ascending: false });
+    
 
     // Admin sees all
     if (role !== "admin") {
@@ -149,7 +150,7 @@ export default function Transactions() {
     document.body.appendChild(link);
     link.click();
   };
-
+  if (loading) return <div>Loading...</div>
   return (
     <div className="space-y-8">
 
@@ -190,8 +191,8 @@ export default function Transactions() {
               onChange={(e) => setStore(e.target.value)}
               className="border p-3 rounded-lg"
             >              
-              {stores.map((store) => (
-                  <option key={store}>{store}</option>
+              {stores.map((store, key) => (
+                  <option key={key} value={store.store_id}>{store.name}</option>
               ))}
             </select>
           </div>

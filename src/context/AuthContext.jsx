@@ -18,7 +18,7 @@ export const AuthProvider = ({ children }) => {
         .select("role")
         .eq("id", userId)
         .maybeSingle();
-
+      
       if (!error && data) setRole(data.role);
       else setRole(null);
     } catch {
@@ -32,7 +32,7 @@ export const AuthProvider = ({ children }) => {
         .from("profiles")
         .select("store_id")
         .eq("id", userId)
-        .maybeSingle();
+        .maybeSingle();        
 
       if (!error && data) setStore(data.store_id);
       else setStore(null);
@@ -49,6 +49,7 @@ export const AuthProvider = ({ children }) => {
     setSession(data.session);
     await fetchUserRole(data.user.id);
     await fetchUserStore(data.user.id);
+    
     return { data, error };
   };
 
@@ -60,24 +61,50 @@ export const AuthProvider = ({ children }) => {
     setRole(null);
   };
 
+  const fetchUserProfile = async (userId) => {
+    
+    console.log("userId", userId);
+    const { data, error } = await supabase
+    .from("profiles")
+    .select("role, store_id")
+    .eq("id", userId)
+    .maybeSingle();
+    
+    console.log("fetchUserProfile", data, error);
+    if (!error && data) {      
+      setRole(data.role);
+      setStoreId(data.store_id);
+    }
+  };
 
   useEffect(() => {
     const initialize = async () => {
       const { data } = await supabase.auth.getSession();
 
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
+      if(data.session?.user){
+        setSession(data.session);
+        setUser(data.session?.user ?? null);
+        await fetchUserRole(data.session.user.id);
+        await fetchUserStore(data.session.user.id);
+      }
 
-      setLoading(false); // 🔥 stop loading immediately
+      setLoading(false); 
     };
 
     initialize();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if(session?.user){
+        setSession(session);
+        setUser(session?.user ?? null);        
+        
+      }else{
+        setUser(null);
+        setRole(null);
+        setStoreId(null);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -89,10 +116,10 @@ export const AuthProvider = ({ children }) => {
       return;
     }
 
-    fetchUserRole(user.id)
-    fetchUserStore(user.id)
+    fetchUserRole(user.id);
+    fetchUserStore(user.id);
     
-  }, [user]);
+  }, [user,storeId, role]);
 
   return (
     <AuthContext.Provider

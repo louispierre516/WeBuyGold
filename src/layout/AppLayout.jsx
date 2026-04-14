@@ -9,7 +9,7 @@ export default function AppLayout() {
     const { user, logout, role } = useAuth();
     const navigate = useNavigate();
     const { stores, activeStore, setActiveStore } = useStore();    
-
+    
     return (
         <div className="flex min-h-screen bg-gray-100">
 
@@ -105,8 +105,8 @@ export default function AppLayout() {
                             className="border rounded-lg px-2 py-1 text-sm"
                         >
                             <option key={"All"}>All</option>
-                            {stores.map((store) => (
-                                <option key={store}>{store}</option>
+                            {stores.map((store, key) => (
+                                <option key={key}>{store.name}</option>
                             ))}
                         </select>
                     </div>

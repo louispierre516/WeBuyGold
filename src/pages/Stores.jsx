@@ -1,29 +1,44 @@
 import { useState, useEffect } from "react";
-import { useStore } from "../context/StoreContext";
+import { supabase } from "../lib/supabase";
 
 export default function Stores() {
   const [stores, setStores] = useState([]);
   const [newStore, setNewStore] = useState("");
 
   useEffect(() => {
-    const stored =
-      JSON.parse(localStorage.getItem("stores")) || [];
-    setStores(stored);
+    fetchStores();
   }, []);
 
-  const addStore = () => {
-    if (!newStore.trim()) return;
+  const fetchStores = async () => {
+    const { data, error } = await supabase
+      .from("stores")
+      .select("*")
+      .order("created_at", { ascending: true });
 
-    const updated = [...stores, newStore];
-    setStores(updated);
-    localStorage.setItem("stores", JSON.stringify(updated));
-    setNewStore("");
+    if (error) console.error(error);
+    else setStores(data);
   };
 
-  const deleteStore = (store) => {
-    const updated = stores.filter((s) => s !== store);
-    setStores(updated);
-    localStorage.setItem("stores", JSON.stringify(updated));
+  const addStore = async () => {
+    if (!newStore.trim()) return;
+
+    const { error } = await supabase
+      .from("stores")
+      .insert([{ name: newStore }]);
+
+    if (!error) {
+      setNewStore("");
+      fetchStores();
+    }
+  };
+
+  const deleteStore = async (id) => {
+    await supabase
+      .from("stores")
+      .delete()
+      .eq("id", id);
+
+    fetchStores();
   };
 
   return (
@@ -50,12 +65,12 @@ export default function Stores() {
       <div className="bg-white shadow rounded p-6">
         {stores.map((store) => (
           <div
-            key={store}
+            key={store.id}
             className="flex justify-between border-b py-2"
           >
-            <span>{store}</span>
+            <span>{store.name}</span>
             <button
-              onClick={() => deleteStore(store)}
+              onClick={() => deleteStore(store.id)}
               className="text-red-600"
             >
               Delete

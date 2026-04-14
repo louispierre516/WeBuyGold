@@ -60,9 +60,9 @@ export default function Audit() {
             className="border p-2 rounded w-full"
           >
             <option value="">All Stores</option>
-            {stores.map((store) => (
-              <option key={store} value={store}>
-                {store}
+            {stores.map((store, key) => (
+              <option key={key} value={store.store_id}>
+                {store.name}
               </option>
             ))}
           </select>
