@@ -4,7 +4,7 @@ import { useAuth } from "../context/useAuth";
 
 export default function Confirmations() {
   const [transactions, setTransactions] = useState([]);
-  const { user } = useAuth();
+  const { user, role } = useAuth();
 
   useEffect(() => {
     fetchTransactions();
@@ -33,9 +33,9 @@ export default function Confirmations() {
   };
 
   const visibleTransactions =
-    user.role === "Admin"
+    role === "admin"
       ? transactions
-      : user.role === "Cashier"
+      : role === "cashier"
       ? transactions.filter((t) => !t.confirmed)
       : transactions.filter((t) => t.user === user.email);
 
@@ -69,7 +69,7 @@ export default function Confirmations() {
               </p>
 
               {!t.confirmed &&
-                user.role !== "User" && (
+                role !== "User" && (
                   <button
                     onClick={() =>
                       confirmTransaction(t.id)
