@@ -50,11 +50,11 @@ export default function Reports() {
 
   // Material Split
   const goldTotal = transactions
-    .filter((t) => t.material === "Gold")
+    .filter((t) => t.material === "gold")
     .reduce((sum, t) => sum + Number(t.amount), 0);
 
   const silverTotal = transactions
-    .filter((t) => t.material === "Silver")
+    .filter((t) => t.material === "silver")
     .reduce((sum, t) => sum + Number(t.amount), 0);
 
   const pieData = [

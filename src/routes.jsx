@@ -3,9 +3,10 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
+import FloatManagement from "./pages/FloatManagement";
 import Categories from "./pages/Categories";
 import Reports from "./pages/Reports";
-import PaymentMethods from "./pages/PaymentMethods";
+import KaratRates from "./pages/KaratRates";
 import Confirmations from "./pages/Confirmations";
 import Users from "./pages/Users";
 import AppLayout from "./layout/AppLayout";
@@ -37,9 +38,13 @@ export default function AppRoutes() {
               <Transactions />
             </ProtectedRoute>
           } />
+          <Route
+            path="/float"
+            element={<FloatManagement />}
+          />
           <Route path="categories" element={<Categories />} />
           <Route path="reports" element={<Reports />} />
-          <Route path="payment-methods" element={<PaymentMethods />} />
+          <Route path="karat-rates" element={<KaratRates />} />
           <Route path="stores" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <Stores />

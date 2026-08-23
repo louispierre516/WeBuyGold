@@ -59,8 +59,8 @@ export default function Dashboard() {
       0
     );
 
-    const goldTx = filteredTx.filter((t) => t.metal_type.toLowerCase() === "gold");
-    const silverTx = filteredTx.filter((t) => t.metal_type.toLowerCase() === "silver");
+    const goldTx = filteredTx.filter((t) => t.metal_type === "gold");
+    const silverTx = filteredTx.filter((t) => t.metal_type === "silver");
 
     const goldWeight = goldTx.reduce(
       (sum, t) => sum + Number(t.weight || 0),
