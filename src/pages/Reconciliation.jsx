@@ -7,8 +7,7 @@ export default function Reconciliation() {
   const { user, role, storeId } = useAuth();
   const { stores } = useStore();
 
-  const today =
-    new Date().toISOString().split("T")[0];
+  const today = new Date().toISOString().split("T")[0];
 
   const [selectedStore, setSelectedStore] =
     useState(storeId || "");
@@ -35,9 +34,11 @@ export default function Reconciliation() {
     useState(false);
 
   /*
-   * Keep store synchronized for
-   * non-admin users.
+   * ---------------------------------------------------------
+   * KEEP STORE SYNCHRONIZED FOR NON-ADMIN USERS
+   * ---------------------------------------------------------
    */
+
   useEffect(() => {
     if (role !== "admin" && storeId) {
       setSelectedStore(storeId);
@@ -45,9 +46,11 @@ export default function Reconciliation() {
   }, [role, storeId]);
 
   /*
-   * Load reconciliation data whenever
-   * store or date changes.
+   * ---------------------------------------------------------
+   * LOAD DATA WHEN STORE / DATE CHANGES
+   * ---------------------------------------------------------
    */
+
   useEffect(() => {
     if (!selectedStore) {
       setLoading(false);
@@ -58,8 +61,11 @@ export default function Reconciliation() {
   }, [selectedStore, selectedDate]);
 
   /*
-   * Safely convert a value to a number.
+   * ---------------------------------------------------------
+   * SAFE NUMBER CONVERSION
+   * ---------------------------------------------------------
    */
+
   const parseAmount = (value) => {
     if (
       value === null ||
@@ -77,12 +83,15 @@ export default function Reconciliation() {
   };
 
   /*
-   * Fetch all float movements and transactions
-   * up to and including the selected date.
+   * ---------------------------------------------------------
+   * FETCH RECONCILIATION DATA
    *
-   * We do this because the closing float for
-   * a day is cumulative.
+   * IMPORTANT:
+   * We intentionally fetch everything up to and including
+   * the selected date because opening float is cumulative.
+   * ---------------------------------------------------------
    */
+
   const fetchReconciliationData =
     async () => {
       if (!selectedStore) {
@@ -181,9 +190,10 @@ export default function Reconciliation() {
       );
 
       /*
-       * If the day is already closed,
-       * populate the physical cash field.
+       * If already closed, populate the physical
+       * cash field from the saved reconciliation.
        */
+
       if (existingReconciliation) {
         setCashCounted(
           existingReconciliation.total_amount !==
@@ -203,12 +213,13 @@ export default function Reconciliation() {
     };
 
   /*
-   * Calculate opening float for the
-   * selected day.
+   * ---------------------------------------------------------
+   * OPENING FLOAT
    *
-   * This is everything that happened
-   * BEFORE the selected date.
+   * Everything before the selected date.
+   * ---------------------------------------------------------
    */
+
   const openingFloat = useMemo(() => {
     let balance = 0;
 
@@ -278,8 +289,11 @@ export default function Reconciliation() {
   ]);
 
   /*
-   * Today's float movements.
+   * ---------------------------------------------------------
+   * TODAY'S MOVEMENTS
+   * ---------------------------------------------------------
    */
+
   const todayMovements = useMemo(() => {
     return movements.filter(
       (movement) =>
@@ -288,8 +302,11 @@ export default function Reconciliation() {
   }, [movements, selectedDate]);
 
   /*
-   * Today's transactions.
+   * ---------------------------------------------------------
+   * TODAY'S TRANSACTIONS
+   * ---------------------------------------------------------
    */
+
   const todayTransactions = useMemo(() => {
     return transactions.filter(
       (transaction) =>
@@ -301,8 +318,11 @@ export default function Reconciliation() {
   ]);
 
   /*
-   * Cash added to the float today.
+   * ---------------------------------------------------------
+   * CASH ADDED
+   * ---------------------------------------------------------
    */
+
   const todayCashAdded = useMemo(() => {
     return todayMovements
       .filter(
@@ -325,9 +345,11 @@ export default function Reconciliation() {
   }, [todayMovements]);
 
   /*
-   * Cash removed through float
-   * movements today.
+   * ---------------------------------------------------------
+   * CASH REMOVED
+   * ---------------------------------------------------------
    */
+
   const todayCashRemoved = useMemo(() => {
     return todayMovements
       .filter(
@@ -348,9 +370,11 @@ export default function Reconciliation() {
   }, [todayMovements]);
 
   /*
-   * Customer payments made today
-   * against purchases.
+   * ---------------------------------------------------------
+   * PURCHASE PAYMENTS
+   * ---------------------------------------------------------
    */
+
   const todayPurchasePayments =
     useMemo(() => {
       return todayTransactions
@@ -370,8 +394,11 @@ export default function Reconciliation() {
     }, [todayTransactions]);
 
   /*
-   * Subsequent customer payouts today.
+   * ---------------------------------------------------------
+   * SUBSEQUENT PAYOUTS
+   * ---------------------------------------------------------
    */
+
   const todayPayouts = useMemo(() => {
     return todayTransactions
       .filter(
@@ -390,8 +417,11 @@ export default function Reconciliation() {
   }, [todayTransactions]);
 
   /*
-   * Expected closing float.
+   * ---------------------------------------------------------
+   * EXPECTED CLOSING FLOAT
+   * ---------------------------------------------------------
    */
+
   const expectedClosingFloat =
     useMemo(() => {
       return (
@@ -410,24 +440,43 @@ export default function Reconciliation() {
     ]);
 
   /*
-   * Physical cash counted.
+   * ---------------------------------------------------------
+   * COUNTED CASH
+   * ---------------------------------------------------------
    */
+
   const countedCash =
     parseAmount(cashCounted);
 
   /*
-   * Difference between physical
-   * and expected cash.
+   * ---------------------------------------------------------
+   * CASH DIFFERENCE
+   * ---------------------------------------------------------
    */
+
   const difference =
     countedCash -
     expectedClosingFloat;
 
   /*
-   * Gold weight purchased today.
+   * ---------------------------------------------------------
+   * GOLD BY KARAT
+   *
+   * IMPORTANT:
+   * Gold is NOT summed into one total.
+   *
+   * Example:
+   *
+   * 24K | 15.20g
+   * 22K | 31.50g
+   * 18K | 8.75g
+   * ---------------------------------------------------------
    */
-  const totalGold = useMemo(() => {
-    return todayTransactions
+
+  const goldByKarat = useMemo(() => {
+    const grouped = {};
+
+    todayTransactions
       .filter(
         (transaction) =>
           transaction.transaction_type ===
@@ -435,19 +484,73 @@ export default function Reconciliation() {
           transaction.metal_type ===
             "Gold"
       )
-      .reduce(
-        (sum, transaction) =>
-          sum +
+      .forEach((transaction) => {
+        const rawKarat =
+          transaction.karats ??
+          transaction.karat ??
+          "Unknown";
+
+        const karat =
+          String(rawKarat).trim() ||
+          "Unknown";
+
+        const weight =
           parseAmount(
             transaction.weight
-          ),
-        0
-      );
+          );
+
+        if (!grouped[karat]) {
+          grouped[karat] = 0;
+        }
+
+        grouped[karat] += weight;
+      });
+
+    return Object.entries(grouped)
+      .map(
+        ([karat, weight]) => ({
+          karat,
+          weight,
+        })
+      )
+      .sort((a, b) => {
+        const aNumber =
+          Number(
+            String(a.karat).replace(
+              /[^0-9.]/g,
+              ""
+            )
+          );
+
+        const bNumber =
+          Number(
+            String(b.karat).replace(
+              /[^0-9.]/g,
+              ""
+            )
+          );
+
+        if (
+          Number.isFinite(aNumber) &&
+          Number.isFinite(bNumber)
+        ) {
+          return bNumber - aNumber;
+        }
+
+        return String(
+          a.karat
+        ).localeCompare(
+          String(b.karat)
+        );
+      });
   }, [todayTransactions]);
 
   /*
-   * Silver weight purchased today.
+   * ---------------------------------------------------------
+   * SILVER
+   * ---------------------------------------------------------
    */
+
   const totalSilver = useMemo(() => {
     return todayTransactions
       .filter(
@@ -468,10 +571,14 @@ export default function Reconciliation() {
   }, [todayTransactions]);
 
   /*
-   * Total gold purchase value
-   * calculated from the actual
-   * transaction amounts.
+   * ---------------------------------------------------------
+   * TOTAL GOLD VALUE
+   *
+   * This remains available as a value total, but gold
+   * weight is displayed by karat.
+   * ---------------------------------------------------------
    */
+
   const totalGoldValue = useMemo(() => {
     return todayTransactions
       .filter(
@@ -492,10 +599,11 @@ export default function Reconciliation() {
   }, [todayTransactions]);
 
   /*
-   * Total cash actually paid today.
-   *
-   * This is what affects the float.
+   * ---------------------------------------------------------
+   * TOTAL CASH PAID
+   * ---------------------------------------------------------
    */
+
   const totalCashPaid = useMemo(() => {
     return (
       todayPurchasePayments +
@@ -507,8 +615,34 @@ export default function Reconciliation() {
   ]);
 
   /*
-   * Store name.
+   * ---------------------------------------------------------
+   * PURCHASE VALUE
+   * ---------------------------------------------------------
    */
+
+  const totalPurchaseValue = useMemo(() => {
+    return todayTransactions
+      .filter(
+        (transaction) =>
+          transaction.transaction_type ===
+          "purchase"
+      )
+      .reduce(
+        (sum, transaction) =>
+          sum +
+          parseAmount(
+            transaction.amount
+          ),
+        0
+      );
+  }, [todayTransactions]);
+
+  /*
+   * ---------------------------------------------------------
+   * STORE NAME
+   * ---------------------------------------------------------
+   */
+
   const selectedStoreName =
     stores.find(
       (store) =>
@@ -519,14 +653,39 @@ export default function Reconciliation() {
     "Selected Store";
 
   /*
-   * Whether the day is already closed.
+   * ---------------------------------------------------------
+   * LOCKED
+   * ---------------------------------------------------------
    */
+
   const isLocked =
     Boolean(reconciliation);
 
   /*
-   * Close the day.
+   * ---------------------------------------------------------
+   * DIFFERENCE DISPLAY
+   * ---------------------------------------------------------
    */
+
+  const isBalanced =
+    Math.abs(difference) < 0.005;
+
+  const isOver =
+    difference > 0.005;
+
+  const differenceColor =
+    isBalanced
+      ? "text-green-600"
+      : isOver
+      ? "text-blue-600"
+      : "text-red-600";
+
+  /*
+   * ---------------------------------------------------------
+   * CLOSE DAY
+   * ---------------------------------------------------------
+   */
+
   const handleConfirm = async () => {
     if (!selectedStore) {
       alert(
@@ -567,6 +726,13 @@ export default function Reconciliation() {
       return;
     }
 
+    if (countedCash < 0) {
+      alert(
+        "Physical cash counted cannot be negative."
+      );
+      return;
+    }
+
     const differenceText =
       difference >= 0
         ? `Cash is $${difference.toFixed(
@@ -581,6 +747,9 @@ export default function Reconciliation() {
     const confirmed =
       window.confirm(
         `Close ${selectedStoreName} for ${selectedDate}?\n\n` +
+          `Opening float: $${openingFloat.toFixed(
+            2
+          )}\n` +
           `Expected closing float: $${expectedClosingFloat.toFixed(
             2
           )}\n` +
@@ -603,17 +772,23 @@ export default function Reconciliation() {
     try {
       /*
        * Re-check immediately before inserting.
-       *
-       * This protects against another browser/user
-       * having closed the day after this page loaded.
        */
-      const { data: existingRows, error: checkError } =
-        await supabase
-          .from("reconciliations")
-          .select("id")
-          .eq("store_id", selectedStore)
-          .eq("date", selectedDate)
-          .limit(1);
+
+      const {
+        data: existingRows,
+        error: checkError,
+      } = await supabase
+        .from("reconciliations")
+        .select("id")
+        .eq(
+          "store_id",
+          selectedStore
+        )
+        .eq(
+          "date",
+          selectedDate
+        )
+        .limit(1);
 
       if (checkError) {
         throw checkError;
@@ -632,11 +807,11 @@ export default function Reconciliation() {
       }
 
       /*
-       * The existing reconciliation table is
-       * used as the closing record.
+       * Save reconciliation record.
        *
-       * total_amount = physical cash counted.
+       * total_amount remains the physical cash counted.
        */
+
       const {
         data,
         error,
@@ -666,12 +841,11 @@ export default function Reconciliation() {
 
       /*
        * Lock transactions for this store/date.
-       *
-       * We use store_id because that is the actual
-       * column in your transactions table.
        */
+
       const {
-        error: transactionLockError,
+        error:
+          transactionLockError,
       } = await supabase
         .from("transactions")
         .update({
@@ -687,13 +861,6 @@ export default function Reconciliation() {
         );
 
       if (transactionLockError) {
-        /*
-         * The reconciliation has already been
-         * inserted at this point.
-         *
-         * We report the problem rather than pretending
-         * the whole close succeeded.
-         */
         console.error(
           "Transaction lock error:",
           transactionLockError
@@ -731,49 +898,64 @@ export default function Reconciliation() {
   };
 
   /*
-   * Format difference.
+   * ---------------------------------------------------------
+   * LOADING
+   * ---------------------------------------------------------
    */
-  const differenceColor =
-    Math.abs(difference) < 0.005
-      ? "text-green-600"
-      : difference > 0
-      ? "text-blue-600"
-      : "text-red-600";
 
   if (loading) {
     return (
-      <div className="p-6">
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <p className="text-gray-500">
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+            Store Reconciliation
+          </h1>
+
+          <p className="text-sm text-gray-500 mt-1">
             Loading reconciliation...
           </p>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="animate-pulse space-y-4">
+            <div className="h-5 bg-gray-200 rounded w-1/3" />
+            <div className="h-10 bg-gray-200 rounded" />
+            <div className="h-10 bg-gray-200 rounded" />
+          </div>
         </div>
       </div>
     );
   }
 
+  /*
+   * ---------------------------------------------------------
+   * MAIN VIEW
+   * ---------------------------------------------------------
+   */
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6 pb-8 max-w-6xl mx-auto">
 
       {/* HEADER */}
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">
+        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
           Store Reconciliation
         </h1>
 
-        <p className="text-gray-500 mt-1">
+        <p className="text-sm text-gray-500 mt-1">
           Count the physical cash and close
           the store for the selected day.
         </p>
       </div>
 
       {/* STORE / DATE */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-6">
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
+          {/* STORE */}
           <div>
-            <label className="text-sm font-medium mb-1 block">
+            <label className="text-xs font-medium text-gray-500 mb-1.5 block">
               Store
             </label>
 
@@ -785,8 +967,8 @@ export default function Reconciliation() {
                     e.target.value
                   )
                 }
-                className="border p-3 rounded-lg w-full"
                 disabled={saving}
+                className="border border-gray-300 rounded-xl px-4 py-3 w-full text-sm bg-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
               >
                 <option value="">
                   Select Store
@@ -815,13 +997,14 @@ export default function Reconciliation() {
                   selectedStoreName
                 }
                 disabled
-                className="border p-3 rounded-lg w-full bg-gray-50"
+                className="border border-gray-300 rounded-xl px-4 py-3 w-full text-sm bg-gray-50"
               />
             )}
           </div>
 
+          {/* DATE */}
           <div>
-            <label className="text-sm font-medium mb-1 block">
+            <label className="text-xs font-medium text-gray-500 mb-1.5 block">
               Closing Date
             </label>
 
@@ -834,25 +1017,34 @@ export default function Reconciliation() {
                 )
               }
               disabled={saving}
-              className="border p-3 rounded-lg w-full"
+              className="border border-gray-300 rounded-xl px-4 py-3 w-full text-sm bg-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
             />
           </div>
 
         </div>
 
+        <div className="mt-3 text-xs text-gray-500">
+          Reviewing:{" "}
+          <span className="font-medium text-gray-700">
+            {selectedStoreName}
+          </span>{" "}
+          · {selectedDate}
+        </div>
       </div>
 
-      {/* CLOSED WARNING */}
+      {/* CLOSED BANNER */}
       {isLocked && (
-        <div className="bg-green-50 border border-green-200 rounded-2xl p-5">
+        <div className="bg-green-50 border border-green-200 rounded-2xl p-4 md:p-5">
 
           <div className="flex items-start gap-3">
 
-            <div className="text-green-600 text-xl">
-              ✓
+            <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+              <span className="text-green-700 font-bold">
+                ✓
+              </span>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <p className="font-semibold text-green-800">
                 Day Closed
               </p>
@@ -863,204 +1055,131 @@ export default function Reconciliation() {
               </p>
 
               <p className="text-sm text-green-700 mt-1">
-                Physical cash recorded:
-                {" "}
+                Physical cash recorded:{" "}
                 <strong>
                   $
                   {parseAmount(
-                    reconciliation.total_amount
+                    reconciliation?.total_amount
                   ).toFixed(2)}
                 </strong>
               </p>
-
             </div>
 
           </div>
-
         </div>
       )}
 
-      {/* EXPECTED FLOAT */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* FLOAT SUMMARY */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-lg font-semibold">
+              Cash Position
+            </h2>
 
-        <div className="bg-black text-white rounded-2xl p-6">
-
-          <p className="text-sm text-gray-400">
-            Opening Float
-          </p>
-
-          <p className="text-3xl font-bold text-yellow-400 mt-2">
-            $
-            {openingFloat.toFixed(2)}
-          </p>
-
-          <p className="text-xs text-gray-400 mt-2">
-            Balance before {selectedDate}
-          </p>
-
+            <p className="text-xs text-gray-500">
+              Expected cash for the end of the day
+            </p>
+          </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
 
-          <p className="text-sm text-gray-500">
-            Expected Closing Float
-          </p>
+          {/* OPENING */}
+          <div className="bg-black text-white rounded-2xl p-5">
 
-          <p className="text-3xl font-bold mt-2">
-            $
-            {expectedClosingFloat.toFixed(
-              2
-            )}
-          </p>
+            <p className="text-xs text-gray-400">
+              Opening Float
+            </p>
 
-          <p className="text-xs text-gray-400 mt-2">
-            What should physically be in
-            the store
-          </p>
+            <p className="text-2xl md:text-3xl font-bold text-yellow-400 mt-1">
+              $
+              {openingFloat.toFixed(2)}
+            </p>
 
-        </div>
+            <p className="text-xs text-gray-400 mt-2">
+              Balance before {selectedDate}
+            </p>
 
-        <div
-          className={`bg-white rounded-2xl border shadow-sm p-6 ${
-            Math.abs(difference) <
-            0.005
-              ? "border-green-200"
-              : "border-red-200"
-          }`}
-        >
+          </div>
 
-          <p className="text-sm text-gray-500">
-            Difference
-          </p>
+          {/* EXPECTED */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
 
-          <p
-            className={`text-3xl font-bold mt-2 ${differenceColor}`}
+            <p className="text-xs text-gray-500">
+              Expected Closing Float
+            </p>
+
+            <p className="text-2xl md:text-3xl font-bold mt-1">
+              $
+              {expectedClosingFloat.toFixed(
+                2
+              )}
+            </p>
+
+            <p className="text-xs text-gray-400 mt-2">
+              What should be physically present
+            </p>
+
+          </div>
+
+          {/* DIFFERENCE */}
+          <div
+            className={`bg-white rounded-2xl border shadow-sm p-5 ${
+              isBalanced
+                ? "border-green-200"
+                : "border-red-200"
+            }`}
           >
-            {difference >= 0
-              ? "+"
-              : "-"}
-            $
-            {Math.abs(
-              difference
-            ).toFixed(2)}
-          </p>
+            <p className="text-xs text-gray-500">
+              Difference
+            </p>
 
-          <p className="text-xs text-gray-400 mt-2">
-            Based on physical cash entered
-            below
-          </p>
+            <p
+              className={`text-2xl md:text-3xl font-bold mt-1 ${differenceColor}`}
+            >
+              {difference >= 0
+                ? "+"
+                : "-"}
+              $
+              {Math.abs(
+                difference
+              ).toFixed(2)}
+            </p>
 
-        </div>
-
-      </div>
-
-      {/* DAY ACTIVITY */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-
-          <p className="text-sm text-gray-500">
-            Cash Added
-          </p>
-
-          <p className="text-2xl font-semibold text-green-600 mt-2">
-            +$
-            {todayCashAdded.toFixed(2)}
-          </p>
+            <p className="text-xs text-gray-400 mt-2">
+              Based on physical cash entered below
+            </p>
+          </div>
 
         </div>
+      </section>
+      
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      {/* PHYSICAL CASH */}
+      <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
 
-          <p className="text-sm text-gray-500">
-            Float Withdrawals / Expenses
-          </p>
+        <div className="p-4 md:p-5 border-b border-gray-100">
 
-          <p className="text-2xl font-semibold text-red-600 mt-2">
-            -$
-            {todayCashRemoved.toFixed(
-              2
-            )}
-          </p>
-
-        </div>
-
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-
-          <p className="text-sm text-gray-500">
-            Customer Cash Paid
-          </p>
-
-          <p className="text-2xl font-semibold text-red-600 mt-2">
-            -$
-            {totalCashPaid.toFixed(2)}
-          </p>
-
-          <p className="text-xs text-gray-400 mt-1">
-            Purchases + subsequent payouts
-          </p>
-
-        </div>
-
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-
-          <p className="text-sm text-gray-500">
-            Gold Purchased
-          </p>
-
-          <p className="text-2xl font-semibold mt-2">
-            {totalGold.toFixed(2)}g
-          </p>
-
-          <p className="text-xs text-gray-400 mt-1">
-            Value: $
-            {totalGoldValue.toFixed(
-              2
-            )}
-          </p>
-
-        </div>
-
-      </div>
-
-      {/* SILVER */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-
-        <p className="text-sm text-gray-500">
-          Silver Purchased
-        </p>
-
-        <p className="text-2xl font-semibold mt-2">
-          {totalSilver.toFixed(2)}g
-        </p>
-
-      </div>
-
-      {/* CASH COUNT */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-
-        <div className="mb-5">
-
-          <h2 className="text-lg font-medium">
+          <h2 className="text-lg font-semibold">
             Physical Cash Count
           </h2>
 
-          <p className="text-sm text-gray-500 mt-1">
-            Count the actual cash physically
-            present in the store.
+          <p className="text-xs md:text-sm text-gray-500 mt-1">
+            Count the actual cash physically present in the store.
           </p>
 
         </div>
 
-        <div className="max-w-md">
+        <div className="p-4 md:p-5">
 
-          <label className="text-sm font-medium mb-1 block">
+          <label className="text-sm font-medium mb-2 block">
             Physical Cash Counted
           </label>
 
-          <div className="relative">
+          <div className="relative max-w-xl">
 
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-lg">
               $
             </span>
 
@@ -1068,6 +1187,7 @@ export default function Reconciliation() {
               type="number"
               min="0"
               step="0.01"
+              inputMode="decimal"
               value={cashCounted}
               onChange={(e) =>
                 setCashCounted(
@@ -1078,102 +1198,108 @@ export default function Reconciliation() {
                 isLocked || saving
               }
               placeholder="0.00"
-              className="border p-3 pl-8 rounded-lg w-full disabled:bg-gray-50"
+              className="border border-gray-300 rounded-xl pl-9 pr-4 py-4 w-full text-xl font-semibold disabled:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-yellow-500"
             />
 
           </div>
 
-        </div>
+          {/* DIFFERENCE */}
+          {cashCounted !== "" && (
+            <div
+              className={`mt-4 rounded-2xl border p-4 md:p-5 ${
+                isBalanced
+                  ? "bg-green-50 border-green-200"
+                  : isOver
+                  ? "bg-blue-50 border-blue-200"
+                  : "bg-red-50 border-red-200"
+              }`}
+            >
 
-      </div>
+              <div className="flex items-center justify-between gap-4">
 
-      {/* DIFFERENCE */}
-      {cashCounted !== "" && (
-        <div
-          className={`rounded-2xl border p-6 ${
-            Math.abs(difference) <
-            0.005
-              ? "bg-green-50 border-green-200"
-              : difference > 0
-              ? "bg-blue-50 border-blue-200"
-              : "bg-red-50 border-red-200"
-          }`}
-        >
+                <div>
+                  <p
+                    className={`text-sm font-semibold ${
+                      isBalanced
+                        ? "text-green-700"
+                        : isOver
+                        ? "text-blue-700"
+                        : "text-red-700"
+                    }`}
+                  >
+                    {isBalanced
+                      ? "Balanced"
+                      : isOver
+                      ? "Cash Over"
+                      : "Cash Short"}
+                  </p>
 
-          <p className="text-sm text-gray-600">
-            Reconciliation Result
-          </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Compared with expected closing float
+                  </p>
+                </div>
 
-          <p
-            className={`text-3xl font-bold mt-2 ${differenceColor}`}
-          >
-            {Math.abs(difference) <
-            0.005
-              ? "Balanced"
-              : difference > 0
-              ? "Cash Over"
-              : "Cash Short"}
-          </p>
+                <p
+                  className={`text-xl md:text-2xl font-bold ${differenceColor}`}
+                >
+                  {difference >= 0
+                    ? "+"
+                    : "-"}
+                  $
+                  {Math.abs(
+                    difference
+                  ).toFixed(2)}
+                </p>
 
-          <p className="text-lg mt-2">
-            Difference:
-            {" "}
-            <strong>
-              {difference >= 0
-                ? "+"
-                : "-"}
-              $
-              {Math.abs(
-                difference
-              ).toFixed(2)}
-            </strong>
-          </p>
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+              <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-current/10">
 
-            <div>
-              <p className="text-sm text-gray-500">
-                Expected
-              </p>
+                <div>
+                  <p className="text-xs text-gray-500">
+                    Expected
+                  </p>
 
-              <p className="font-semibold">
-                $
-                {expectedClosingFloat.toFixed(
-                  2
-                )}
-              </p>
+                  <p className="font-semibold mt-1">
+                    $
+                    {expectedClosingFloat.toFixed(
+                      2
+                    )}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-gray-500">
+                    Counted
+                  </p>
+
+                  <p className="font-semibold mt-1">
+                    $
+                    {countedCash.toFixed(2)}
+                  </p>
+                </div>
+
+              </div>
+
             </div>
-
-            <div>
-              <p className="text-sm text-gray-500">
-                Counted
-              </p>
-
-              <p className="font-semibold">
-                $
-                {countedCash.toFixed(2)}
-              </p>
-            </div>
-
-          </div>
+          )}
 
         </div>
-      )}
+      </section>
 
-      {/* CLOSE BUTTON */}
+      {/* CLOSE DAY */}
       {!isLocked ? (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 md:p-6">
 
-          <div className="mb-5">
+          <div className="mb-4">
 
-            <h2 className="text-lg font-medium">
+            <h2 className="text-lg font-semibold">
               Close Store Day
             </h2>
 
-            <p className="text-sm text-gray-500 mt-1">
-              Closing the day records the
-              physical cash and prevents
-              further transactions for this
+            <p className="text-xs md:text-sm text-gray-500 mt-1">
+              Closing the day records the physical cash
+              and prevents further transactions for this
               store/date through the application.
             </p>
 
@@ -1186,48 +1312,377 @@ export default function Reconciliation() {
               saving ||
               cashCounted === ""
             }
-            className="w-full md:w-auto bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-green-600 text-white px-6 py-4 rounded-xl font-semibold hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving
               ? "Closing Day..."
               : "Confirm & Close Day"}
           </button>
 
-        </div>
+        </section>
       ) : (
-        <div className="bg-green-50 border border-green-200 rounded-2xl p-6">
+        <section className="bg-green-50 border border-green-200 rounded-2xl p-5">
 
-          <p className="font-semibold text-green-800">
-            Day is closed.
-          </p>
+          <div className="flex items-start gap-3">
 
-          <p className="text-sm text-green-700 mt-1">
-            Confirmed by user:
-            {" "}
-            {reconciliation.confirmed_by}
-          </p>
+            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center shrink-0">
+              <span className="text-green-700 font-bold">
+                ✓
+              </span>
+            </div>
 
-          <p className="text-sm text-green-700">
-            Physical cash:
-            {" "}
-            $
-            {parseAmount(
-              reconciliation.total_amount
-            ).toFixed(2)}
-          </p>
+            <div className="min-w-0">
 
-          <p className="text-sm text-green-700">
-            Closed on:
-            {" "}
-            {reconciliation.created_at
-              ? new Date(
-                  reconciliation.created_at
-                ).toLocaleString()
-              : ""}
+              <p className="font-semibold text-green-800">
+                Day is closed
+              </p>
+
+              <p className="text-sm text-green-700 mt-1">
+                This store/date has already been
+                reconciled.
+              </p>
+
+              <div className="mt-3 space-y-1 text-sm text-green-700">
+
+                <p>
+                  Confirmed by:{" "}
+                  {reconciliation?.confirmed_by}
+                </p>
+
+                <p>
+                  Physical cash: $
+                  {parseAmount(
+                    reconciliation?.total_amount
+                  ).toFixed(2)}
+                </p>
+
+                {reconciliation?.created_at && (
+                  <p>
+                    Closed on:{" "}
+                    {new Date(
+                      reconciliation.created_at
+                    ).toLocaleString()}
+                  </p>
+                )}
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </section>
+      )}
+
+      {/* DAY ACTIVITY */}
+      <section>
+        <h2 className="text-lg font-semibold mb-3">
+          Today's Activity
+        </h2>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-xs text-gray-500">
+              Cash Added
+            </p>
+
+            <p className="text-xl font-semibold text-green-600 mt-1">
+              +$
+              {todayCashAdded.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-xs text-gray-500">
+              Withdrawals / Expenses
+            </p>
+
+            <p className="text-xl font-semibold text-red-600 mt-1">
+              -$
+              {todayCashRemoved.toFixed(
+                2
+              )}
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-xs text-gray-500">
+              Customer Cash Paid
+            </p>
+
+            <p className="text-xl font-semibold text-red-600 mt-1">
+              -$
+              {totalCashPaid.toFixed(2)}
+            </p>
+
+            <p className="text-[11px] text-gray-400 mt-1">
+              Purchases + payouts
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-xs text-gray-500">
+              Purchase Value
+            </p>
+
+            <p className="text-xl font-semibold mt-1">
+              $
+              {totalPurchaseValue.toFixed(
+                2
+              )}
+            </p>
+          </div>
+
+        </div>
+      </section>
+
+      {/* METALS */}
+      <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+
+        <div className="p-4 md:p-5 border-b border-gray-100">
+
+          <div className="flex items-start justify-between gap-3">
+
+            <div>
+              <h2 className="text-lg font-semibold">
+                Metal Purchased
+              </h2>
+
+              <p className="text-xs md:text-sm text-gray-500 mt-1">
+                Weight purchased during the selected day.
+              </p>
+            </div>
+
+            {totalGoldValue > 0 && (
+              <div className="text-right shrink-0">
+                <p className="text-[11px] text-gray-500">
+                  Gold value
+                </p>
+
+                <p className="font-semibold">
+                  $
+                  {totalGoldValue.toFixed(
+                    2
+                  )}
+                </p>
+              </div>
+            )}
+
+          </div>
+
+        </div>
+
+        <div className="p-4 md:p-5">
+
+          {/* GOLD */}
+          <div>
+
+            <div className="flex items-center justify-between mb-3">
+
+              <div>
+                <p className="font-semibold text-gray-900">
+                  Gold
+                </p>
+
+                <p className="text-xs text-gray-500">
+                  Weight by karat
+                </p>
+              </div>
+
+              <span className="text-xs bg-yellow-100 text-yellow-800 px-2.5 py-1 rounded-full">
+                {goldByKarat.length}{" "}
+                {goldByKarat.length === 1
+                  ? "karat"
+                  : "karats"}
+              </span>
+
+            </div>
+
+            {goldByKarat.length === 0 ? (
+              <div className="border border-dashed border-gray-200 rounded-xl p-5 text-center">
+                <p className="text-sm text-gray-400">
+                  No gold purchased.
+                </p>
+              </div>
+            ) : (
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+
+                {/* Responsive table.
+                    It remains a real table on mobile,
+                    with compact columns. */}
+
+                <div className="overflow-x-auto">
+
+                  <table className="w-full text-sm">
+
+                    <thead className="bg-yellow-50 border-b border-yellow-100">
+
+                      <tr>
+
+                        <th className="text-left px-3 py-3 font-semibold text-yellow-900">
+                          Karat
+                        </th>
+
+                        <th className="text-right px-3 py-3 font-semibold text-yellow-900">
+                          Weight
+                        </th>
+
+                      </tr>
+
+                    </thead>
+
+                    <tbody className="divide-y divide-gray-100">
+
+                      {goldByKarat.map(
+                        (item) => (
+                          <tr
+                            key={
+                              item.karat
+                            }
+                            className="bg-white"
+                          >
+
+                            <td className="px-3 py-3 font-semibold text-gray-900">
+                              {item.karat}
+                              {String(
+                                item.karat
+                              ).toLowerCase().includes("k")
+                                ? ""
+                                : "K"}
+                            </td>
+
+                            <td className="px-3 py-3 text-right font-semibold text-gray-900">
+                              {item.weight.toFixed(
+                                2
+                              )}
+                              g
+                            </td>
+
+                          </tr>
+                        )
+                      )}
+
+                    </tbody>
+
+                  </table>
+
+                </div>
+
+              </div>
+            )}
+
+          </div>
+
+          {/* SILVER */}
+          <div className="mt-5 pt-5 border-t border-gray-100">
+
+            <div className="flex items-center justify-between">
+
+              <div>
+                <p className="font-semibold text-gray-900">
+                  Silver
+                </p>
+
+                <p className="text-xs text-gray-500">
+                  Total weight
+                </p>
+              </div>
+
+              <p className="text-xl font-bold">
+                {totalSilver.toFixed(2)}
+                g
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+      {/* TRANSACTION ACTIVITY */}
+      <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+
+        <div className="p-4 md:p-5 border-b border-gray-100">
+
+          <h2 className="text-lg font-semibold">
+            Transaction Activity
+          </h2>
+
+          <p className="text-xs md:text-sm text-gray-500 mt-1">
+            Summary of transactions recorded for the day.
           </p>
 
         </div>
-      )}
+
+        <div className="divide-y divide-gray-100">
+
+          <div className="p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">
+                Purchases
+              </p>
+
+              <p className="text-xs text-gray-500 mt-0.5">
+                Customer purchases recorded
+              </p>
+            </div>
+
+            <p className="text-lg font-semibold">
+              {
+                todayTransactions.filter(
+                  (transaction) =>
+                    transaction.transaction_type ===
+                    "purchase"
+                ).length
+              }
+            </p>
+          </div>
+
+          <div className="p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">
+                Subsequent Payments
+              </p>
+
+              <p className="text-xs text-gray-500 mt-0.5">
+                Payments against outstanding receipts
+              </p>
+            </div>
+
+            <p className="text-lg font-semibold">
+              {
+                todayTransactions.filter(
+                  (transaction) =>
+                    transaction.transaction_type ===
+                    "payout"
+                ).length
+              }
+            </p>
+          </div>
+
+          <div className="p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">
+                Purchase Value
+              </p>
+
+              <p className="text-xs text-gray-500 mt-0.5">
+                Total agreed purchase value
+              </p>
+            </div>
+
+            <p className="text-lg font-semibold">
+              $
+              {totalPurchaseValue.toFixed(
+                2
+              )}
+            </p>
+          </div>
+
+        </div>
+      </section>
 
     </div>
   );
