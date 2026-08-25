@@ -12,6 +12,11 @@ export default function Transactions() {
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState([]);
 
+  // Reconciliation / locked days
+  const [reconciliations, setReconciliations] = useState([]);
+  const [reconciliationLoading, setReconciliationLoading] =
+    useState(false);
+
   // Karat rates
   const [karatRates, setKaratRates] = useState([]);
   const [ratesLoading, setRatesLoading] = useState(false);
@@ -33,10 +38,7 @@ export default function Transactions() {
   const [weight, setWeight] = useState("");
 
   /*
-   * Amount Paid:
-   *
-   * This is the amount actually paid to the
-   * customer TODAY.
+   * Amount actually paid to the customer TODAY.
    */
   const [amountPaid, setAmountPaid] =
     useState("");
@@ -53,15 +55,7 @@ export default function Transactions() {
     useState(false);
 
   /*
-   * Actual Purchase Amount:
-   *
-   * This starts as the calculated value but
-   * the clerk can change it.
-   *
-   * Example:
-   *
-   * Calculated:       $2,664.87
-   * Actual Purchase: $2,650.00
+   * Actual agreed purchase amount.
    */
   const [actualAmount, setActualAmount] =
     useState("");
@@ -92,7 +86,8 @@ export default function Transactions() {
     useState(today);
 
   /*
-   * Fetch transactions.
+   * Fetch transactions whenever the user/store
+   * context changes.
    */
   useEffect(() => {
     if (user) {
@@ -117,6 +112,15 @@ export default function Transactions() {
       fetchFloatMovements();
     }
   }, [user, storeId]);
+
+  /*
+   * Fetch reconciliations.
+   */
+  useEffect(() => {
+    if (user) {
+      fetchReconciliations();
+    }
+  }, [user, role, storeId]);
 
   /*
    * Keep store synchronized with logged-in store.
@@ -186,6 +190,102 @@ export default function Transactions() {
 
     setLoading(false);
   };
+
+  /*
+   * Fetch reconciliation records.
+   *
+   * A reconciliation represents a day that has
+   * been confirmed/locked.
+   */
+  const fetchReconciliations = async () => {
+    setReconciliationLoading(true);
+
+    let query = supabase
+      .from("reconciliations")
+      .select(
+        "id, store_id, date, total_amount, confirmed_by, created_at"
+      )
+      .order("date", {
+        ascending: false,
+      });
+
+    if (role !== "admin") {
+      query = query.eq("store_id", storeId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error(
+        "Error fetching reconciliations:",
+        error
+      );
+
+      setReconciliations([]);
+    } else {
+      setReconciliations(data || []);
+    }
+
+    setReconciliationLoading(false);
+  };
+
+  /*
+   * Determine whether a store/date has been
+   * reconciled.
+   *
+   * Admin users may work across stores, so the
+   * store ID is explicitly checked.
+   */
+  const isDateReconciled = (
+    storeIdToCheck,
+    dateToCheck
+  ) => {
+    if (!storeIdToCheck || !dateToCheck) {
+      return false;
+    }
+
+    return reconciliations.some(
+      (reconciliation) =>
+        reconciliation.store_id ===
+          storeIdToCheck &&
+        reconciliation.date ===
+          dateToCheck
+    );
+  };
+
+  /*
+   * Locked status for the current new
+   * transaction form.
+   */
+  const currentDateLocked = useMemo(() => {
+    return isDateReconciled(
+      store || storeId,
+      date
+    );
+  }, [
+    reconciliations,
+    store,
+    storeId,
+    date,
+  ]);
+
+  /*
+   * Locked status for the selected payment.
+   */
+  const paymentDateLocked = useMemo(() => {
+    if (!selectedReceipt) {
+      return false;
+    }
+
+    return isDateReconciled(
+      selectedReceipt.store_id,
+      paymentDate
+    );
+  }, [
+    reconciliations,
+    selectedReceipt,
+    paymentDate,
+  ]);
 
   /*
    * Fetch float movements.
@@ -287,7 +387,12 @@ export default function Transactions() {
 
     const sameDayReceipts = new Set(
       transactions
-        .filter((t) => t.date === date)
+        .filter(
+          (t) =>
+            t.date === date &&
+            t.store_id ===
+              (store || storeId)
+        )
         .map((t) => t.receipt_id)
         .filter(Boolean)
     );
@@ -312,13 +417,6 @@ export default function Transactions() {
 
   /*
    * Calculate receipt balance.
-   *
-   * Purchase amount = actual agreed purchase
-   * amount.
-   *
-   * Purchase amount_paid = initial payment.
-   *
-   * Payout amount = subsequent payment.
    */
   const getReceiptBalance = (
     receiptId
@@ -339,26 +437,16 @@ export default function Transactions() {
       return 0;
     }
 
-    /*
-     * amount contains the actual purchase
-     * amount agreed with the customer.
-     */
     const originalAmount =
       parseAmount(
         originalTransaction.amount
       );
 
-    /*
-     * Initial payment made on the purchase.
-     */
     const initialPayment = Number(
       originalTransaction.amount_paid ||
         0
     );
 
-    /*
-     * Subsequent payments.
-     */
     const additionalPayments =
       receiptTransactions
         .filter(
@@ -416,25 +504,25 @@ export default function Transactions() {
     let toDate = today;
 
     if (historyRange === "7days") {
-      const date = new Date();
+      const historyDate = new Date();
 
-      date.setDate(
-        date.getDate() - 6
+      historyDate.setDate(
+        historyDate.getDate() - 6
       );
 
-      fromDate = date
+      fromDate = historyDate
         .toISOString()
         .split("T")[0];
     }
 
     if (historyRange === "30days") {
-      const date = new Date();
+      const historyDate = new Date();
 
-      date.setDate(
-        date.getDate() - 29
+      historyDate.setDate(
+        historyDate.getDate() - 29
       );
 
-      fromDate = date
+      fromDate = historyDate
         .toISOString()
         .split("T")[0];
     }
@@ -461,17 +549,7 @@ export default function Transactions() {
   ]);
 
   /*
-   * Calculate the current float.
-   *
-   * Float movements:
-   * opening_float       +
-   * owner_addition      +
-   * adjustment          +
-   * owner_withdrawal    -
-   *
-   * Transactions:
-   * purchase            - amount_paid
-   * payout              - amount
+   * Calculate current float.
    */
   const currentFloat = useMemo(() => {
     let balance = 0;
@@ -509,10 +587,6 @@ export default function Transactions() {
         transaction.transaction_type ===
         "purchase"
       ) {
-        /*
-         * Only the amount actually paid today
-         * comes out of the float.
-         */
         balance -= parseAmount(
           transaction.amount_paid
         );
@@ -522,10 +596,6 @@ export default function Transactions() {
         transaction.transaction_type ===
         "payout"
       ) {
-        /*
-         * Payout amount is the amount actually
-         * paid during a subsequent payment.
-         */
         balance -= parseAmount(
           transaction.amount
         );
@@ -546,13 +616,6 @@ export default function Transactions() {
 
   /*
    * Calculated value.
-   *
-   * This is the suggested value based on:
-   *
-   * weight × rate per gram
-   *
-   * It is NOT necessarily the final amount
-   * the customer receives.
    */
   const calculatedAmount =
     Number(weight) > 0 &&
@@ -565,11 +628,8 @@ export default function Transactions() {
       : 0;
 
   /*
-   * Automatically populate Actual Purchase
-   * Amount from the calculated amount.
-   *
-   * Once the clerk manually edits the amount,
-   * don't overwrite their value.
+   * Automatically populate actual purchase
+   * amount.
    */
   useEffect(() => {
     if (
@@ -597,23 +657,14 @@ export default function Transactions() {
     parseAmount(actualAmount);
 
   /*
-   * Difference between calculated value and
-   * actual amount agreed.
-   *
-   * Example:
-   *
-   * Calculated: $2,664.87
-   * Actual:     $2,650.00
-   *
-   * Adjustment: -$14.87
+   * Purchase adjustment.
    */
   const purchaseAdjustment =
     actualPurchaseAmount -
     calculatedAmount;
 
   /*
-   * Outstanding balance for the new
-   * transaction.
+   * Outstanding balance for new transaction.
    */
   const newTransactionBalance =
     Math.max(
@@ -656,6 +707,14 @@ export default function Transactions() {
   const startPartialPayment = (
     receipt
   ) => {
+    /*
+     * A receipt itself can originate from a
+     * previously locked purchase. That does not
+     * automatically mean every future date is
+     * locked.
+     *
+     * The payment date is checked separately.
+     */
     setPaymentMode(true);
     setSelectedReceipt(receipt);
     setPaymentDate(today);
@@ -679,16 +738,6 @@ export default function Transactions() {
    * Save initial purchase.
    */
   const savePurchase = async () => {
-    /*
-     * calculatedAmount is the mathematical
-     * suggested value.
-     *
-     * actualPurchaseAmount is the amount
-     * the clerk actually agrees to pay.
-     *
-     * firstPayment is what is physically
-     * paid to the customer today.
-     */
     const calculatedValue =
       calculatedAmount;
 
@@ -697,6 +746,40 @@ export default function Transactions() {
 
     const firstPayment =
       parseAmount(amountPaid);
+
+    /*
+     * Reconciliation check.
+     *
+     * This is intentionally performed again here
+     * rather than relying only on the disabled
+     * button, because the reconciliation could have
+     * happened after the page loaded.
+     */
+    const selectedStore =
+      store || storeId;
+
+    const dateIsLocked =
+      isDateReconciled(
+        selectedStore,
+        date
+      );
+
+    if (dateIsLocked) {
+      alert(
+        `This store/date has already been reconciled and locked.\n\nDate: ${date}\n\nNo new transactions can be added.`
+      );
+
+      await fetchReconciliations();
+
+      return;
+    }
+
+    if (!selectedStore) {
+      alert(
+        "Please select a store."
+      );
+      return;
+    }
 
     if (
       Number(weight) <= 0 ||
@@ -722,10 +805,6 @@ export default function Transactions() {
       return;
     }
 
-    /*
-     * The actual purchase amount must be
-     * valid.
-     */
     if (finalAmount <= 0) {
       alert(
         "Please enter a valid Actual Purchase Amount."
@@ -733,10 +812,6 @@ export default function Transactions() {
       return;
     }
 
-    /*
-     * Amount paid today cannot exceed the
-     * actual agreed purchase amount.
-     */
     if (firstPayment > finalAmount) {
       alert(
         "Amount Paid cannot be greater than the Actual Purchase Amount."
@@ -744,10 +819,6 @@ export default function Transactions() {
       return;
     }
 
-    /*
-     * Check the float before allowing
-     * the transaction.
-     */
     if (firstPayment > currentFloat) {
       alert(
         `This payment would exceed the store's available float.\n\nCurrent float: $${currentFloat.toFixed(
@@ -782,20 +853,13 @@ export default function Transactions() {
           : null,
 
       /*
-       * IMPORTANT:
-       *
-       * amount stores the FINAL AGREED
-       * PURCHASE AMOUNT.
-       *
-       * It does not necessarily equal
-       * weight × rate.
+       * Final agreed purchase amount.
        */
       amount:
         finalAmount,
 
       /*
-       * amount_paid stores the amount that
-       * was actually paid TODAY.
+       * Amount physically paid today.
        */
       amount_paid:
         firstPayment,
@@ -812,7 +876,13 @@ export default function Transactions() {
         user.id,
 
       store_id:
-        store || storeId,
+        selectedStore,
+
+      /*
+       * New transactions are unlocked by default.
+       * Reconciliation will set this to true.
+       */
+      locked: false,
     };
 
     const { error } =
@@ -835,6 +905,7 @@ export default function Transactions() {
     await Promise.all([
       fetchTransactions(),
       fetchFloatMovements(),
+      fetchReconciliations(),
     ]);
 
     resetForm();
@@ -846,6 +917,55 @@ export default function Transactions() {
   const savePartialPayment =
     async () => {
       if (!selectedReceipt) {
+        return;
+      }
+
+      /*
+       * Check whether the payment date has
+       * already been reconciled.
+       */
+      const paymentStore =
+        selectedReceipt.store_id;
+
+      const dateIsLocked =
+        isDateReconciled(
+          paymentStore,
+          paymentDate
+        );
+
+      if (dateIsLocked) {
+        alert(
+          `This store/date has already been reconciled and locked.\n\nDate: ${paymentDate}\n\nNo payment can be added to this date.`
+        );
+
+        await fetchReconciliations();
+
+        return;
+      }
+
+      /*
+       * Also prevent payments against a receipt
+       * whose purchase transaction is itself locked
+       * when the payment is being recorded on the
+       * same locked date.
+       */
+      const receiptTransactions =
+        getReceiptTransactions(
+          selectedReceipt.receipt_id
+        );
+
+      const lockedReceiptTransaction =
+        receiptTransactions.some(
+          (transaction) =>
+            transaction.locked === true &&
+            transaction.date ===
+              paymentDate
+        );
+
+      if (lockedReceiptTransaction) {
+        alert(
+          "This receipt is locked for the selected payment date."
+        );
         return;
       }
 
@@ -879,9 +999,6 @@ export default function Transactions() {
         return;
       }
 
-      /*
-       * Check current float.
-       */
       if (payment > currentFloat) {
         alert(
           `This payment would exceed the store's available float.\n\nCurrent float: $${currentFloat.toFixed(
@@ -916,9 +1033,8 @@ export default function Transactions() {
           selectedReceipt.override_rate_per_gram,
 
         /*
-         * For a payout transaction, amount is
-         * the actual amount being paid in this
-         * payment.
+         * Payout amount is the amount actually
+         * paid in this payment.
          */
         amount:
           payment,
@@ -937,6 +1053,8 @@ export default function Transactions() {
 
         store_id:
           selectedReceipt.store_id,
+
+        locked: false,
       };
 
       const { error } =
@@ -959,6 +1077,7 @@ export default function Transactions() {
       await Promise.all([
         fetchTransactions(),
         fetchFloatMovements(),
+        fetchReconciliations(),
       ]);
 
       cancelPartialPayment();
@@ -978,9 +1097,46 @@ export default function Transactions() {
 
   /*
    * Delete transaction.
+   *
+   * Reconciled/locked transactions cannot be
+   * deleted.
    */
   const deleteTransaction =
     async (transaction) => {
+      /*
+       * First check the explicit transaction
+       * locked flag.
+       */
+      if (transaction.locked === true) {
+        alert(
+          "This transaction is locked because its day has been reconciled. It cannot be deleted."
+        );
+        return;
+      }
+
+      /*
+       * Also check the reconciliation table.
+       *
+       * This protects against a stale transaction
+       * object if reconciliation happened after
+       * the page was loaded.
+       */
+      if (
+        transaction.store_id &&
+        transaction.date &&
+        isDateReconciled(
+          transaction.store_id,
+          transaction.date
+        )
+      ) {
+        alert(
+          `This transaction belongs to a reconciled date (${transaction.date}) and cannot be deleted.`
+        );
+
+        await fetchReconciliations();
+        return;
+      }
+
       if (
         transaction.transaction_type ===
           "purchase" &&
@@ -1004,6 +1160,15 @@ export default function Transactions() {
         }
       }
 
+      const confirmed =
+        window.confirm(
+          "Are you sure you want to delete this transaction?"
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
       const { error } =
         await supabase
           .from("transactions")
@@ -1023,6 +1188,7 @@ export default function Transactions() {
       await Promise.all([
         fetchTransactions(),
         fetchFloatMovements(),
+        fetchReconciliations(),
       ]);
     };
 
@@ -1043,6 +1209,7 @@ export default function Transactions() {
       "Amount Paid",
       "Rate Per Gram Used",
       "Store",
+      "Locked",
       "Notes",
     ];
 
@@ -1062,6 +1229,7 @@ export default function Transactions() {
           t.override_rate_per_gram ??
             "",
           t.store_id,
+          t.locked ? "Yes" : "No",
           t.notes ?? "",
         ]
       );
@@ -1184,11 +1352,65 @@ export default function Transactions() {
         </div>
       )}
 
+      {reconciliationLoading && (
+        <p className="text-xs text-gray-400">
+          Checking reconciliation status...
+        </p>
+      )}
+
       {floatLoading && (
         <p className="text-xs text-gray-400">
           Updating float...
         </p>
       )}
+
+      {/* LOCKED DATE WARNING */}
+      {!paymentMode &&
+        currentDateLocked && (
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <div className="text-xl">
+                🔒
+              </div>
+
+              <div>
+                <p className="font-semibold">
+                  Day Reconciled & Locked
+                </p>
+
+                <p className="text-sm mt-1">
+                  {date} has already been
+                  reconciled for this store.
+                  New transactions cannot be
+                  added to this date.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {paymentMode &&
+        paymentDateLocked && (
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <div className="text-xl">
+                🔒
+              </div>
+
+              <div>
+                <p className="font-semibold">
+                  Payment Date Is Locked
+                </p>
+
+                <p className="text-sm mt-1">
+                  {paymentDate} has already
+                  been reconciled. No payment
+                  can be recorded for this date.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
 
@@ -1257,9 +1479,20 @@ export default function Transactions() {
                       e.target.value
                     )
                   }
-                  className="border p-3 rounded-lg"
+                  className={`border p-3 rounded-lg ${
+                    paymentDateLocked
+                      ? "bg-red-50 border-red-300"
+                      : ""
+                  }`}
                   required
                 />
+
+                {paymentDateLocked && (
+                  <p className="text-xs text-red-600 mt-1">
+                    This date is reconciled and
+                    locked.
+                  </p>
+                )}
               </div>
 
               {/* Store */}
@@ -1272,7 +1505,8 @@ export default function Transactions() {
                   value={
                     stores.find(
                       (s) =>
-                        s.store_id ===
+                        (s.store_id ||
+                          s.id) ===
                         selectedReceipt.store_id
                     )?.name || ""
                   }
@@ -1377,6 +1611,9 @@ export default function Transactions() {
                   }
                   className="border p-3 rounded-lg"
                   required
+                  disabled={
+                    paymentDateLocked
+                  }
                 />
 
                 {parseAmount(paymentAmount) >
@@ -1417,6 +1654,9 @@ export default function Transactions() {
                     )
                   }
                   className="border p-3 rounded-lg min-h-[100px]"
+                  disabled={
+                    paymentDateLocked
+                  }
                 />
               </div>
 
@@ -1424,12 +1664,17 @@ export default function Transactions() {
               <button
                 type="submit"
                 disabled={
+                  paymentDateLocked ||
                   parseAmount(paymentAmount) >
-                  currentFloat
+                    currentFloat ||
+                  parseAmount(paymentAmount) <=
+                    0
                 }
                 className="md:col-span-2 w-full bg-yellow-600 text-white py-3 rounded-lg hover:bg-yellow-700 transition disabled:opacity-50"
               >
-                Save Payment
+                {paymentDateLocked
+                  ? "Payment Date Locked"
+                  : "Save Payment"}
               </button>
             </form>
           ) : (
@@ -1452,9 +1697,20 @@ export default function Transactions() {
                       e.target.value
                     )
                   }
-                  className="border p-3 rounded-lg"
+                  className={`border p-3 rounded-lg ${
+                    currentDateLocked
+                      ? "bg-red-50 border-red-300"
+                      : ""
+                  }`}
                   required
                 />
+
+                {currentDateLocked && (
+                  <p className="text-xs text-red-600 mt-1">
+                    This date has been
+                    reconciled and locked.
+                  </p>
+                )}
               </div>
 
               {/* Store */}
@@ -1471,20 +1727,33 @@ export default function Transactions() {
                     )
                   }
                   className="border p-3 rounded-lg"
+                  disabled={
+                    role !== "admin"
+                  }
                 >
+                  <option value="">
+                    Select Store
+                  </option>
+
                   {stores.map(
-                    (storeItem) => (
-                      <option
-                        key={
-                          storeItem.store_id
-                        }
-                        value={
-                          storeItem.store_id
-                        }
-                      >
-                        {storeItem.name}
-                      </option>
-                    )
+                    (storeItem) => {
+                      const storeValue =
+                        storeItem.store_id ||
+                        storeItem.id;
+
+                      return (
+                        <option
+                          key={
+                            storeValue
+                          }
+                          value={
+                            storeValue
+                          }
+                        >
+                          {storeItem.name}
+                        </option>
+                      );
+                    }
                   )}
                 </select>
               </div>
@@ -1506,7 +1775,10 @@ export default function Transactions() {
                     )
                   }
                   className="border p-3 rounded-lg"
-                  required
+                  // required
+                  disabled={
+                    currentDateLocked
+                  }
                 />
               </div>
 
@@ -1540,6 +1812,9 @@ export default function Transactions() {
                     }
                   }}
                   className="border p-3 rounded-lg"
+                  disabled={
+                    currentDateLocked
+                  }
                 >
                   <option value="Gold">
                     Gold
@@ -1567,6 +1842,9 @@ export default function Transactions() {
                     }
                     className="border p-3 rounded-lg"
                     required
+                    disabled={
+                      currentDateLocked
+                    }
                   >
                     <option value="">
                       Select Karats
@@ -1623,6 +1901,9 @@ export default function Transactions() {
                   }
                   className="border p-3 rounded-lg"
                   required
+                  disabled={
+                    currentDateLocked
+                  }
                 />
               </div>
 
@@ -1653,6 +1934,9 @@ export default function Transactions() {
                   }}
                   className="border p-3 rounded-lg"
                   required
+                  disabled={
+                    currentDateLocked
+                  }
                 />
 
                 <div className="flex items-center justify-between mt-1">
@@ -1725,6 +2009,9 @@ export default function Transactions() {
                   }}
                   className="border p-3 rounded-lg"
                   required
+                  disabled={
+                    currentDateLocked
+                  }
                 />
 
                 {actualAmount &&
@@ -1775,6 +2062,9 @@ export default function Transactions() {
                   }
                   className="border p-3 rounded-lg"
                   required
+                  disabled={
+                    currentDateLocked
+                  }
                 />
 
                 {parseAmount(amountPaid) >
@@ -1828,6 +2118,9 @@ export default function Transactions() {
                     )
                   }
                   className="border p-3 rounded-lg min-h-[100px]"
+                  disabled={
+                    currentDateLocked
+                  }
                 />
               </div>
 
@@ -1835,6 +2128,7 @@ export default function Transactions() {
               <button
                 type="submit"
                 disabled={
+                  currentDateLocked ||
                   parseAmount(amountPaid) >
                     currentFloat ||
                   actualPurchaseAmount <=
@@ -1842,7 +2136,9 @@ export default function Transactions() {
                 }
                 className="md:col-span-2 w-full bg-yellow-600 text-white py-3 rounded-lg hover:bg-yellow-700 transition disabled:opacity-50"
               >
-                Save Transaction
+                {currentDateLocked
+                  ? "Day Is Locked"
+                  : "Save Transaction"}
               </button>
             </form>
           )}
@@ -1932,22 +2228,38 @@ export default function Transactions() {
                           receipt.receipt_id
                         );
 
+                      const receiptLocked =
+                        receipt.locked ===
+                        true;
+
                       return (
                         <div
                           key={
                             receipt.receipt_id
                           }
-                          className="border rounded-lg p-4"
+                          className={`border rounded-lg p-4 ${
+                            receiptLocked
+                              ? "bg-gray-50 border-gray-200"
+                              : ""
+                          }`}
                         >
 
                           <div className="flex justify-between gap-4">
 
                             <div>
-                              <p className="font-medium">
-                                {
-                                  receipt.customer_name
-                                }
-                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium">
+                                  {
+                                    receipt.customer_name
+                                  }
+                                </p>
+
+                                {receiptLocked && (
+                                  <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-600">
+                                    🔒 Locked
+                                  </span>
+                                )}
+                              </div>
 
                               <p className="text-xs text-gray-400 mt-1">
                                 Receipt:{" "}
@@ -1993,6 +2305,15 @@ export default function Transactions() {
                                     )}
                                   </p>
                                 )}
+
+                              {receipt.locked && (
+                                <p className="text-xs text-red-500 mt-1">
+                                  This transaction
+                                  is locked because
+                                  its day has been
+                                  reconciled.
+                                </p>
+                              )}
                             </div>
 
                             <div className="text-right">
@@ -2132,6 +2453,9 @@ export default function Transactions() {
                         onDelete={
                           deleteTransaction
                         }
+                        isDateReconciled={
+                          isDateReconciled
+                        }
                       />
                     )
                   )}
@@ -2152,6 +2476,7 @@ function TransactionRow({
   getReceiptBalance,
   parseAmount,
   onDelete,
+  isDateReconciled,
 }) {
   const balance =
     getReceiptBalance(
@@ -2163,10 +2488,27 @@ function TransactionRow({
     "payout";
 
   /*
-   * Reconstruct the calculated value from
-   * weight × rate.
+   * A transaction is considered locked if:
    *
-   * We don't need another database column.
+   * 1. transactions.locked = true
+   * OR
+   * 2. its store/date exists in reconciliations.
+   */
+  const reconciled =
+    transaction.store_id &&
+    transaction.date
+      ? isDateReconciled(
+          transaction.store_id,
+          transaction.date
+        )
+      : false;
+
+  const isLocked =
+    transaction.locked === true ||
+    reconciled;
+
+  /*
+   * Reconstruct calculated value.
    */
   const calculatedValue =
     !isPayout &&
@@ -2179,8 +2521,8 @@ function TransactionRow({
       : null;
 
   /*
-   * Difference between the calculated value
-   * and the actual purchase amount.
+   * Difference between calculated value
+   * and actual purchase amount.
    */
   const purchaseAdjustment =
     calculatedValue !== null
@@ -2190,13 +2532,19 @@ function TransactionRow({
       : 0;
 
   return (
-    <div className="border rounded-lg p-4">
+    <div
+      className={`border rounded-lg p-4 ${
+        isLocked
+          ? "bg-gray-50 border-gray-200"
+          : ""
+      }`}
+    >
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
 
         <div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
 
             <p className="font-medium">
               {transaction.customer_name}
@@ -2213,6 +2561,12 @@ function TransactionRow({
                 ? "Payment"
                 : "Purchase"}
             </span>
+
+            {isLocked && (
+              <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-600">
+                🔒 Locked
+              </span>
+            )}
 
           </div>
 
@@ -2243,6 +2597,13 @@ function TransactionRow({
           {transaction.notes && (
             <p className="text-sm text-gray-400 mt-2">
               {transaction.notes}
+            </p>
+          )}
+
+          {isLocked && (
+            <p className="text-xs text-red-500 mt-2">
+              This transaction is locked because
+              its store/date has been reconciled.
             </p>
           )}
 
@@ -2338,16 +2699,22 @@ function TransactionRow({
 
           </div>
 
-          <button
-            onClick={() =>
-              onDelete(
-                transaction
-              )
-            }
-            className="text-red-500 text-sm"
-          >
-            Delete
-          </button>
+          {isLocked ? (
+            <span className="text-gray-400 text-sm">
+              🔒 Locked
+            </span>
+          ) : (
+            <button
+              onClick={() =>
+                onDelete(
+                  transaction
+                )
+              }
+              className="text-red-500 text-sm hover:text-red-700"
+            >
+              Delete
+            </button>
+          )}
 
         </div>
 
