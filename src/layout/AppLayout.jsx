@@ -9,16 +9,51 @@ export default function AppLayout() {
   const { user, logout, role } = useAuth();
   const navigate = useNavigate();
 
-  const { stores, activeStore, setActiveStore } = useStore();
+  const {
+    stores = [],
+    activeStore,
+    setActiveStore,
+  } = useStore();
+
+  /*
+   * Find the currently selected store safely.
+   *
+   * activeStore may be:
+   *
+   * - "All"
+   * - a store UUID
+   * - temporarily undefined/null while loading
+   */
+  const selectedStore = stores.find(
+    (store) => store.id === activeStore
+  );
+
+  /*
+   * Display name for the top navigation.
+   */
+  const activeStoreName =
+    activeStore === "All"
+      ? "All Stores"
+      : selectedStore?.name || "Select Store";
 
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
 
+  /*
+   * Handle store changes safely.
+   */
+  const handleStoreChange = (e) => {
+    const value = e.target.value;
+
+    setActiveStore(value);
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Sidebar */}
+
+      {/* SIDEBAR */}
       <aside
         className={`
           fixed top-0 left-0 z-50
@@ -27,12 +62,12 @@ export default function AppLayout() {
           flex flex-col
           overflow-y-auto
           transition-transform duration-300
-
           ${isOpen ? "translate-x-0" : "-translate-x-full"}
           md:translate-x-0
         `}
       >
         <div className="p-6">
+
           <h2 className="text-xl font-bold text-yellow-600 mb-6">
             weTrack Gold
           </h2>
@@ -42,6 +77,7 @@ export default function AppLayout() {
           </p>
 
           <nav className="space-y-3">
+
             <Link
               to="/"
               className="block hover:bg-gray-800 p-2 rounded"
@@ -57,46 +93,31 @@ export default function AppLayout() {
             >
               Transactions
             </Link>
-            <Link
-                to="/float"
-                className="block hover:bg-gray-800 p-2 rounded"
-                onClick={() => setIsOpen(false)}
-                >
-                Float Management
-            </Link>
 
             <Link
-              to="/reports"
+              to="/float"
               className="block hover:bg-gray-800 p-2 rounded"
               onClick={() => setIsOpen(false)}
             >
-              Reports
-            </Link>
-
-            <Link
-              to="/confirmations"
-              className="block hover:bg-gray-800 p-2 rounded"
-              onClick={() => setIsOpen(false)}
-            >
-              Confirmations
+              Float Management
             </Link>
 
             {role === "admin" && (
               <>
-                <Link
-                  to="/categories"
-                  className="block hover:bg-gray-800 p-2 rounded"
-                  onClick={() => setIsOpen(false)}
-                >
-                  Categories
-                </Link>
-
                 <Link
                   to="/karat-rates"
                   className="block hover:bg-gray-800 p-2 rounded"
                   onClick={() => setIsOpen(false)}
                 >
                   Karats Rates
+                </Link>
+
+                <Link
+                  to="/reconciliation"
+                  className="block hover:bg-gray-800 p-2 rounded"
+                  onClick={() => setIsOpen(false)}
+                >
+                  Reconciliation
                 </Link>
 
                 <Link
@@ -114,22 +135,6 @@ export default function AppLayout() {
                 >
                   Stores
                 </Link>
-
-                <Link
-                  to="/audit"
-                  className="block hover:bg-gray-800 p-2 rounded"
-                  onClick={() => setIsOpen(false)}
-                >
-                  Audit Log
-                </Link>
-
-                <Link
-                  to="/reconciliation"
-                  className="block hover:bg-gray-800 p-2 rounded"
-                  onClick={() => setIsOpen(false)}
-                >
-                  Reconciliation
-                </Link>
               </>
             )}
 
@@ -139,11 +144,12 @@ export default function AppLayout() {
             >
               Logout
             </button>
+
           </nav>
         </div>
       </aside>
 
-      {/* Mobile overlay */}
+      {/* MOBILE OVERLAY */}
       {isOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -151,13 +157,18 @@ export default function AppLayout() {
         />
       )}
 
-      {/* Main area */}
+      {/* MAIN AREA */}
       <div className="min-h-screen md:ml-64 flex flex-col">
-        {/* Top bar */}
+
+        {/* TOP BAR */}
         <header className="sticky top-0 z-30 bg-white shadow-sm px-4 md:px-6 py-4">
+
           <div className="flex justify-between items-center gap-4">
-            {/* Left */}
+
+            {/* LEFT SIDE */}
             <div className="flex items-center gap-3 min-w-0">
+
+              {/* Mobile menu */}
               <button
                 onClick={() => setIsOpen(!isOpen)}
                 className="md:hidden text-xl shrink-0"
@@ -166,28 +177,38 @@ export default function AppLayout() {
                 ☰
               </button>
 
+              {/* Store name */}
               <h1 className="text-lg font-semibold truncate">
-                {activeStore} Store
+                {activeStoreName}
               </h1>
 
+              {/* Store selector */}
               <select
-                value={activeStore}
-                onChange={(e) => setActiveStore(e.target.value)}
-                className="border rounded-lg px-2 py-1 text-sm"
+                value={activeStore || "All"}
+                onChange={handleStoreChange}
+                className="border rounded-lg px-2 py-1 text-sm bg-white"
               >
-                <option value="All">All</option>
+                <option value="All">
+                  All
+                </option>
 
                 {stores.map((store) => (
-                  <option key={store.id} value={store.name}>
+                  <option
+                    key={store.id}
+                    value={store.id}
+                  >
                     {store.name}
                   </option>
                 ))}
               </select>
+
             </div>
 
-            {/* Right */}
+            {/* RIGHT SIDE */}
             <div className="flex items-center gap-4 shrink-0">
+
               <div className="text-right hidden sm:block">
+
                 <p className="text-sm font-medium">
                   {user?.email}
                 </p>
@@ -195,6 +216,7 @@ export default function AppLayout() {
                 <p className="text-xs text-gray-500">
                   {role}
                 </p>
+
               </div>
 
               <button
@@ -203,15 +225,20 @@ export default function AppLayout() {
               >
                 Logout
               </button>
+
             </div>
+
           </div>
+
         </header>
 
-        {/* Page content */}
+        {/* PAGE CONTENT */}
         <main className="flex-1 p-4 md:p-6 lg:p-10">
           <Outlet />
         </main>
+
       </div>
+
     </div>
   );
 }
