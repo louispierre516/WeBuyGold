@@ -31,8 +31,16 @@ export default function Transactions() {
   const [material, setMaterial] =
     useState("Gold");
   const [weight, setWeight] = useState("");
+
+  /*
+   * Amount Paid:
+   *
+   * This is the amount actually paid to the
+   * customer TODAY.
+   */
   const [amountPaid, setAmountPaid] =
     useState("");
+
   const [karats, setKarats] = useState("");
   const [overrideRate, setOverrideRate] =
     useState("");
@@ -43,6 +51,25 @@ export default function Transactions() {
 
   const [rateManuallyOverridden, setRateManuallyOverridden] =
     useState(false);
+
+  /*
+   * Actual Purchase Amount:
+   *
+   * This starts as the calculated value but
+   * the clerk can change it.
+   *
+   * Example:
+   *
+   * Calculated:       $2,664.87
+   * Actual Purchase: $2,650.00
+   */
+  const [actualAmount, setActualAmount] =
+    useState("");
+
+  const [
+    actualAmountManuallyEdited,
+    setActualAmountManuallyEdited,
+  ] = useState(false);
 
   // Partial payment
   const [paymentMode, setPaymentMode] =
@@ -285,6 +312,13 @@ export default function Transactions() {
 
   /*
    * Calculate receipt balance.
+   *
+   * Purchase amount = actual agreed purchase
+   * amount.
+   *
+   * Purchase amount_paid = initial payment.
+   *
+   * Payout amount = subsequent payment.
    */
   const getReceiptBalance = (
     receiptId
@@ -305,16 +339,26 @@ export default function Transactions() {
       return 0;
     }
 
+    /*
+     * amount contains the actual purchase
+     * amount agreed with the customer.
+     */
     const originalAmount =
       parseAmount(
         originalTransaction.amount
       );
 
+    /*
+     * Initial payment made on the purchase.
+     */
     const initialPayment = Number(
       originalTransaction.amount_paid ||
         0
     );
 
+    /*
+     * Subsequent payments.
+     */
     const additionalPayments =
       receiptTransactions
         .filter(
@@ -465,6 +509,10 @@ export default function Transactions() {
         transaction.transaction_type ===
         "purchase"
       ) {
+        /*
+         * Only the amount actually paid today
+         * comes out of the float.
+         */
         balance -= parseAmount(
           transaction.amount_paid
         );
@@ -474,6 +522,10 @@ export default function Transactions() {
         transaction.transaction_type ===
         "payout"
       ) {
+        /*
+         * Payout amount is the amount actually
+         * paid during a subsequent payment.
+         */
         balance -= parseAmount(
           transaction.amount
         );
@@ -493,20 +545,79 @@ export default function Transactions() {
     parseAmount(overrideRate);
 
   /*
-   * Amount sold for.
+   * Calculated value.
+   *
+   * This is the suggested value based on:
+   *
+   * weight × rate per gram
+   *
+   * It is NOT necessarily the final amount
+   * the customer receives.
    */
   const calculatedAmount =
     Number(weight) > 0 &&
     currentRate > 0
-      ? Number(weight) * currentRate
+      ? Math.round(
+          Number(weight) *
+            currentRate *
+            100
+        ) / 100
       : 0;
 
   /*
-   * Outstanding balance.
+   * Automatically populate Actual Purchase
+   * Amount from the calculated amount.
+   *
+   * Once the clerk manually edits the amount,
+   * don't overwrite their value.
+   */
+  useEffect(() => {
+    if (
+      calculatedAmount > 0 &&
+      !actualAmountManuallyEdited
+    ) {
+      setActualAmount(
+        calculatedAmount.toFixed(2)
+      );
+    }
+
+    if (calculatedAmount <= 0) {
+      setActualAmount("");
+      setActualAmountManuallyEdited(false);
+    }
+  }, [
+    calculatedAmount,
+    actualAmountManuallyEdited,
+  ]);
+
+  /*
+   * Actual agreed purchase amount.
+   */
+  const actualPurchaseAmount =
+    parseAmount(actualAmount);
+
+  /*
+   * Difference between calculated value and
+   * actual amount agreed.
+   *
+   * Example:
+   *
+   * Calculated: $2,664.87
+   * Actual:     $2,650.00
+   *
+   * Adjustment: -$14.87
+   */
+  const purchaseAdjustment =
+    actualPurchaseAmount -
+    calculatedAmount;
+
+  /*
+   * Outstanding balance for the new
+   * transaction.
    */
   const newTransactionBalance =
     Math.max(
-      calculatedAmount -
+      actualPurchaseAmount -
         parseAmount(amountPaid),
       0
     );
@@ -524,6 +635,11 @@ export default function Transactions() {
     setOverrideRate("");
     setNotes("");
     setStore(storeId || "");
+
+    setActualAmount("");
+    setActualAmountManuallyEdited(
+      false
+    );
 
     setRateManuallyOverridden(false);
 
@@ -563,17 +679,28 @@ export default function Transactions() {
    * Save initial purchase.
    */
   const savePurchase = async () => {
-    const originalAmount =
+    /*
+     * calculatedAmount is the mathematical
+     * suggested value.
+     *
+     * actualPurchaseAmount is the amount
+     * the clerk actually agrees to pay.
+     *
+     * firstPayment is what is physically
+     * paid to the customer today.
+     */
+    const calculatedValue =
       calculatedAmount;
+
+    const finalAmount =
+      parseAmount(actualAmount);
 
     const firstPayment =
       parseAmount(amountPaid);
 
     if (
       Number(weight) <= 0 ||
-      !Number.isFinite(
-        Number(weight)
-      )
+      !Number.isFinite(Number(weight))
     ) {
       alert(
         "Please enter a valid weight."
@@ -588,27 +715,37 @@ export default function Transactions() {
       return;
     }
 
-    if (originalAmount <= 0) {
+    if (calculatedValue <= 0) {
       alert(
-        "The calculated Amount Sold For must be greater than zero."
-      );
-      return;
-    }
-
-    if (
-      firstPayment >
-      originalAmount
-    ) {
-      alert(
-        "Amount Paid cannot be greater than Amount Sold For."
+        "The calculated value must be greater than zero."
       );
       return;
     }
 
     /*
-     * Important:
-     *
-     * We check the float before allowing
+     * The actual purchase amount must be
+     * valid.
+     */
+    if (finalAmount <= 0) {
+      alert(
+        "Please enter a valid Actual Purchase Amount."
+      );
+      return;
+    }
+
+    /*
+     * Amount paid today cannot exceed the
+     * actual agreed purchase amount.
+     */
+    if (firstPayment > finalAmount) {
+      alert(
+        "Amount Paid cannot be greater than the Actual Purchase Amount."
+      );
+      return;
+    }
+
+    /*
+     * Check the float before allowing
      * the transaction.
      */
     if (firstPayment > currentFloat) {
@@ -644,10 +781,22 @@ export default function Transactions() {
           ? Number(karats)
           : null,
 
-      amount: String(
-        originalAmount.toFixed(2)
-      ),
+      /*
+       * IMPORTANT:
+       *
+       * amount stores the FINAL AGREED
+       * PURCHASE AMOUNT.
+       *
+       * It does not necessarily equal
+       * weight × rate.
+       */
+      amount:
+        finalAmount,
 
+      /*
+       * amount_paid stores the amount that
+       * was actually paid TODAY.
+       */
       amount_paid:
         firstPayment,
 
@@ -659,7 +808,8 @@ export default function Transactions() {
       transaction_type:
         "purchase",
 
-      user_id: user.id,
+      user_id:
+        user.id,
 
       store_id:
         store || storeId,
@@ -740,6 +890,7 @@ export default function Transactions() {
             2
           )}`
         );
+
         return;
       }
 
@@ -764,8 +915,13 @@ export default function Transactions() {
         override_rate_per_gram:
           selectedReceipt.override_rate_per_gram,
 
+        /*
+         * For a payout transaction, amount is
+         * the actual amount being paid in this
+         * payment.
+         */
         amount:
-          String(payment),
+          payment,
 
         amount_paid:
           payment,
@@ -1019,6 +1175,7 @@ export default function Transactions() {
           <p className="font-medium">
             Warning: Store float is negative.
           </p>
+
           <p className="text-sm mt-1">
             Please add funds using Float
             Management before making more
@@ -1065,6 +1222,7 @@ export default function Transactions() {
               className="grid grid-cols-1 md:grid-cols-2 gap-4"
             >
 
+              {/* Receipt */}
               <div className="md:col-span-2">
                 <label className="text-sm font-medium mb-1 block">
                   Receipt
@@ -1085,6 +1243,7 @@ export default function Transactions() {
                 </div>
               </div>
 
+              {/* Payment Date */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Payment Date
@@ -1103,6 +1262,7 @@ export default function Transactions() {
                 />
               </div>
 
+              {/* Store */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Store
@@ -1121,6 +1281,7 @@ export default function Transactions() {
                 />
               </div>
 
+              {/* Customer Name */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Customer Name
@@ -1136,6 +1297,7 @@ export default function Transactions() {
                 />
               </div>
 
+              {/* Material */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Material
@@ -1151,6 +1313,7 @@ export default function Transactions() {
                 />
               </div>
 
+              {/* Weight */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Weight
@@ -1167,9 +1330,10 @@ export default function Transactions() {
                 />
               </div>
 
+              {/* Original Amount */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
-                  Original Amount
+                  Actual Purchase Amount
                 </label>
 
                 <input
@@ -1177,10 +1341,11 @@ export default function Transactions() {
                     selectedReceipt.amount
                   ).toFixed(2)}`}
                   disabled
-                  className="border p-3 rounded-lg bg-gray-50"
+                  className="border p-3 rounded-lg bg-gray-50 font-semibold"
                 />
               </div>
 
+              {/* Outstanding Balance */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Outstanding Balance
@@ -1194,6 +1359,7 @@ export default function Transactions() {
                 </div>
               </div>
 
+              {/* Payment Amount */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Payment Amount
@@ -1222,6 +1388,7 @@ export default function Transactions() {
                 )}
               </div>
 
+              {/* Balance After Payment */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Balance After Payment
@@ -1235,6 +1402,7 @@ export default function Transactions() {
                 </div>
               </div>
 
+              {/* Notes */}
               <div className="md:col-span-2 flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Notes
@@ -1252,6 +1420,7 @@ export default function Transactions() {
                 />
               </div>
 
+              {/* Save Payment */}
               <button
                 type="submit"
                 disabled={
@@ -1502,10 +1671,10 @@ export default function Transactions() {
                 </div>
               </div>
 
-              {/* Amount */}
+              {/* Calculated Value */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
-                  Amount Sold For
+                  Calculated Value
                 </label>
 
                 <div className="border p-3 rounded-lg bg-gray-50 font-semibold text-lg">
@@ -1527,18 +1696,77 @@ export default function Transactions() {
                       )}/g`
                     : "Enter weight and select a rate"}
                 </p>
+
+                <p className="text-xs text-gray-400 mt-1">
+                  Suggested value based on
+                  weight and rate.
+                </p>
               </div>
 
-              {/* Amount Paid */}
+              {/* Actual Purchase Amount */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
-                  Amount Paid
+                  Actual Purchase Amount
                 </label>
 
                 <input
                   type="text"
                   inputMode="decimal"
-                  placeholder="Amount Paid"
+                  placeholder="Actual amount"
+                  value={actualAmount}
+                  onChange={(e) => {
+                    setActualAmount(
+                      e.target.value
+                    );
+
+                    setActualAmountManuallyEdited(
+                      true
+                    );
+                  }}
+                  className="border p-3 rounded-lg"
+                  required
+                />
+
+                {actualAmount &&
+                  calculatedAmount > 0 &&
+                  actualPurchaseAmount !==
+                    calculatedAmount && (
+                    <p
+                      className={`text-xs mt-1 ${
+                        purchaseAdjustment <
+                        0
+                          ? "text-orange-600"
+                          : "text-green-600"
+                      }`}
+                    >
+                      Adjustment:{" "}
+                      {purchaseAdjustment >=
+                      0
+                        ? "+"
+                        : ""}
+                      $
+                      {purchaseAdjustment.toFixed(
+                        2
+                      )}
+                    </p>
+                  )}
+
+                <p className="text-xs text-gray-400 mt-1">
+                  Enter the actual amount agreed
+                  to pay the customer.
+                </p>
+              </div>
+
+              {/* Amount Paid */}
+              <div className="flex flex-col">
+                <label className="text-sm font-medium mb-1">
+                  Amount Paid Today
+                </label>
+
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Amount Paid Today"
                   value={amountPaid}
                   onChange={(e) =>
                     setAmountPaid(
@@ -1566,7 +1794,7 @@ export default function Transactions() {
 
                 <div className="flex justify-between items-center border rounded-lg p-3 bg-gray-50">
                   <span className="text-sm text-gray-600">
-                    Outstanding Balance
+                    Amount Remaining
                   </span>
 
                   <span
@@ -1608,7 +1836,9 @@ export default function Transactions() {
                 type="submit"
                 disabled={
                   parseAmount(amountPaid) >
-                  currentFloat
+                    currentFloat ||
+                  actualPurchaseAmount <=
+                    0
                 }
                 className="md:col-span-2 w-full bg-yellow-600 text-white py-3 rounded-lg hover:bg-yellow-700 transition disabled:opacity-50"
               >
@@ -1739,13 +1969,30 @@ export default function Transactions() {
                               </p>
 
                               <p className="text-xs text-gray-400 mt-1">
-                                Original: $
+                                Actual Purchase: $
                                 {parseAmount(
                                   receipt.amount
                                 ).toFixed(
                                   2
                                 )}
                               </p>
+
+                              {receipt.weight &&
+                                receipt.override_rate_per_gram && (
+                                  <p className="text-xs text-gray-400 mt-1">
+                                    Calculated: $
+                                    {(
+                                      Number(
+                                        receipt.weight
+                                      ) *
+                                      Number(
+                                        receipt.override_rate_per_gram
+                                      )
+                                    ).toFixed(
+                                      2
+                                    )}
+                                  </p>
+                                )}
                             </div>
 
                             <div className="text-right">
@@ -1915,6 +2162,33 @@ function TransactionRow({
     transaction.transaction_type ===
     "payout";
 
+  /*
+   * Reconstruct the calculated value from
+   * weight × rate.
+   *
+   * We don't need another database column.
+   */
+  const calculatedValue =
+    !isPayout &&
+    transaction.weight &&
+    transaction.override_rate_per_gram
+      ? Number(transaction.weight) *
+        Number(
+          transaction.override_rate_per_gram
+        )
+      : null;
+
+  /*
+   * Difference between the calculated value
+   * and the actual purchase amount.
+   */
+  const purchaseAdjustment =
+    calculatedValue !== null
+      ? parseAmount(
+          transaction.amount
+        ) - calculatedValue
+      : 0;
+
   return (
     <div className="border rounded-lg p-4">
 
@@ -1987,13 +2261,55 @@ function TransactionRow({
 
             {!isPayout && (
               <p className="text-xs text-gray-500">
-                Paid: $
+                Actual Purchase: $
+                {parseAmount(
+                  transaction.amount
+                ).toFixed(2)}
+              </p>
+            )}
+
+            {!isPayout && (
+              <p className="text-xs text-gray-500">
+                Paid Today: $
                 {Number(
                   transaction.amount_paid ||
                     0
                 ).toFixed(2)}
               </p>
             )}
+
+            {!isPayout &&
+              calculatedValue !== null && (
+                <p className="text-xs text-gray-400">
+                  Calculated: $
+                  {calculatedValue.toFixed(
+                    2
+                  )}
+                </p>
+              )}
+
+            {!isPayout &&
+              calculatedValue !== null &&
+              Math.abs(
+                purchaseAdjustment
+              ) >= 0.01 && (
+                <p
+                  className={`text-xs ${
+                    purchaseAdjustment < 0
+                      ? "text-orange-600"
+                      : "text-green-600"
+                  }`}
+                >
+                  Adjustment:{" "}
+                  {purchaseAdjustment >= 0
+                    ? "+"
+                    : ""}
+                  $
+                  {purchaseAdjustment.toFixed(
+                    2
+                  )}
+                </p>
+              )}
 
             {!isPayout &&
               transaction.override_rate_per_gram && (
