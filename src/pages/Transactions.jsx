@@ -26,68 +26,82 @@ export default function Transactions() {
   const [floatLoading, setFloatLoading] = useState(false);
 
   // Main card tab
-  const [receiptView, setReceiptView] =
-    useState("outstanding");
+  const [receiptView, setReceiptView] = useState("outstanding");
+
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // New transaction form
   const [date, setDate] = useState(today);
-  const [customerName, setCustomerName] =
-    useState("");
-  const [material, setMaterial] =
-    useState("Gold");
+  const [customerName, setCustomerName] = useState("");
+  const [material, setMaterial] = useState("Gold");
   const [weight, setWeight] = useState("");
-
-  /*
-   * Amount actually paid to the customer TODAY.
-   */
-  const [amountPaid, setAmountPaid] =
-    useState("");
-
+  const [amountPaid, setAmountPaid] = useState("");
   const [karats, setKarats] = useState("");
-  const [overrideRate, setOverrideRate] =
-    useState("");
+  const [overrideRate, setOverrideRate] = useState("");
   const [notes, setNotes] = useState("");
-  const [store, setStore] = useState(
-    storeId || ""
-  );
+  const [store, setStore] = useState(storeId || "");
 
   const [rateManuallyOverridden, setRateManuallyOverridden] =
     useState(false);
 
-  /*
-   * Actual agreed purchase amount.
-   */
-  const [actualAmount, setActualAmount] =
-    useState("");
-
+  const [actualAmount, setActualAmount] = useState("");
   const [
     actualAmountManuallyEdited,
     setActualAmountManuallyEdited,
   ] = useState(false);
 
   // Partial payment
-  const [paymentMode, setPaymentMode] =
-    useState(false);
-  const [selectedReceipt, setSelectedReceipt] =
-    useState(null);
-  const [paymentDate, setPaymentDate] =
-    useState(today);
-  const [paymentAmount, setPaymentAmount] =
-    useState("");
-  const [paymentNotes, setPaymentNotes] =
-    useState("");
+  const [paymentMode, setPaymentMode] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState(null);
+  const [paymentDate, setPaymentDate] = useState(today);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
 
   // History
-  const [historyRange, setHistoryRange] =
-    useState("today");
-  const [customFrom, setCustomFrom] =
-    useState("");
-  const [customTo, setCustomTo] =
-    useState(today);
+  const [historyRange, setHistoryRange] = useState("today");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState(today);
 
   /*
-   * Fetch transactions whenever the user/store
-   * context changes.
+   * Convert amount safely.
+   */
+  const parseAmount = (value) => {
+    if (
+      value === null ||
+      value === undefined ||
+      value === ""
+    ) {
+      return 0;
+    }
+
+    const cleaned = String(value).replace(
+      /[^0-9.-]/g,
+      ""
+    );
+
+    const parsed = Number(cleaned);
+
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  /*
+   * Determine the store whose float should be displayed.
+   *
+   * For supervisors this is always their assigned store.
+   * For admins it follows the store selected on the page.
+   */
+  const activeStoreId = useMemo(() => {
+    if (role === "admin") {
+      return store || storeId || "";
+    }
+
+    return storeId || store || "";
+  }, [role, store, storeId]);
+
+  /*
+   * Fetch transactions.
    */
   useEffect(() => {
     if (user) {
@@ -105,13 +119,16 @@ export default function Transactions() {
   }, [user]);
 
   /*
-   * Fetch float movements.
+   * Fetch float movements whenever the active
+   * store changes.
    */
   useEffect(() => {
-    if (user && storeId) {
-      fetchFloatMovements();
+    if (user && activeStoreId) {
+      fetchFloatMovements(activeStoreId);
+    } else {
+      setFloatMovements([]);
     }
-  }, [user, storeId]);
+  }, [user, activeStoreId]);
 
   /*
    * Fetch reconciliations.
@@ -126,10 +143,10 @@ export default function Transactions() {
    * Keep store synchronized with logged-in store.
    */
   useEffect(() => {
-    if (storeId) {
+    if (role !== "admin" && storeId) {
       setStore(storeId);
     }
-  }, [storeId]);
+  }, [role, storeId]);
 
   /*
    * Automatically populate karat rate.
@@ -193,9 +210,6 @@ export default function Transactions() {
 
   /*
    * Fetch reconciliation records.
-   *
-   * A reconciliation represents a day that has
-   * been confirmed/locked.
    */
   const fetchReconciliations = async () => {
     setReconciliationLoading(true);
@@ -230,11 +244,7 @@ export default function Transactions() {
   };
 
   /*
-   * Determine whether a store/date has been
-   * reconciled.
-   *
-   * Admin users may work across stores, so the
-   * store ID is explicitly checked.
+   * Determine whether a store/date has been reconciled.
    */
   const isDateReconciled = (
     storeIdToCheck,
@@ -254,23 +264,21 @@ export default function Transactions() {
   };
 
   /*
-   * Locked status for the current new
-   * transaction form.
+   * Locked status for new transaction.
    */
   const currentDateLocked = useMemo(() => {
     return isDateReconciled(
-      store || storeId,
+      activeStoreId,
       date
     );
   }, [
     reconciliations,
-    store,
-    storeId,
+    activeStoreId,
     date,
   ]);
 
   /*
-   * Locked status for the selected payment.
+   * Locked status for selected payment.
    */
   const paymentDateLocked = useMemo(() => {
     if (!selectedReceipt) {
@@ -288,10 +296,12 @@ export default function Transactions() {
   ]);
 
   /*
-   * Fetch float movements.
+   * Fetch float movements for a specific store.
    */
-  const fetchFloatMovements = async () => {
-    if (!storeId) {
+  const fetchFloatMovements = async (
+    selectedStoreId = activeStoreId
+  ) => {
+    if (!selectedStoreId) {
       setFloatMovements([]);
       return;
     }
@@ -301,7 +311,7 @@ export default function Transactions() {
     const { data, error } = await supabase
       .from("float_movements")
       .select("*")
-      .eq("store_id", storeId)
+      .eq("store_id", selectedStoreId)
       .order("date", {
         ascending: true,
       })
@@ -353,30 +363,6 @@ export default function Transactions() {
   };
 
   /*
-   * Convert amount to number.
-   */
-  const parseAmount = (value) => {
-    if (
-      value === null ||
-      value === undefined ||
-      value === ""
-    ) {
-      return 0;
-    }
-
-    const cleaned = String(value).replace(
-      /[^0-9.-]/g,
-      ""
-    );
-
-    const parsed = Number(cleaned);
-
-    return Number.isFinite(parsed)
-      ? parsed
-      : 0;
-  };
-
-  /*
    * Generate receipt number.
    */
   const generateReceiptId = () => {
@@ -390,8 +376,7 @@ export default function Transactions() {
         .filter(
           (t) =>
             t.date === date &&
-            t.store_id ===
-              (store || storeId)
+            t.store_id === activeStoreId
         )
         .map((t) => t.receipt_id)
         .filter(Boolean)
@@ -549,7 +534,14 @@ export default function Transactions() {
   ]);
 
   /*
-   * Calculate current float.
+   * ============================================================
+   * CORRECT FLOAT CALCULATION
+   * ============================================================
+   *
+   * This now mirrors FloatManagement.jsx exactly.
+   *
+   * IMPORTANT:
+   * expense was missing from the original Transaction.jsx.
    */
   const currentFloat = useMemo(() => {
     let balance = 0;
@@ -558,54 +550,63 @@ export default function Transactions() {
       const amount =
         parseAmount(movement.amount);
 
-      if (
-        movement.movement_type ===
-          "opening_float" ||
-        movement.movement_type ===
-          "owner_addition"
+      switch (
+        movement.movement_type
       ) {
-        balance += amount;
-      }
+        case "opening_float":
+        case "owner_addition":
+          balance += amount;
+          break;
 
-      if (
-        movement.movement_type ===
-        "owner_withdrawal"
-      ) {
-        balance -= amount;
-      }
+        case "owner_withdrawal":
+        case "expense":
+          balance -= amount;
+          break;
 
-      if (
-        movement.movement_type ===
-        "adjustment"
-      ) {
-        balance += amount;
+        case "adjustment":
+          balance += amount;
+          break;
+
+        default:
+          break;
       }
     });
 
-    transactions.forEach((transaction) => {
-      if (
-        transaction.transaction_type ===
-        "purchase"
-      ) {
-        balance -= parseAmount(
-          transaction.amount_paid
-        );
-      }
+    /*
+     * Only transactions belonging to the active
+     * store should affect this displayed float.
+     */
+    transactions
+      .filter(
+        (transaction) =>
+          transaction.store_id ===
+          activeStoreId
+      )
+      .forEach((transaction) => {
+        if (
+          transaction.transaction_type ===
+          "purchase"
+        ) {
+          balance -= parseAmount(
+            transaction.amount_paid
+          );
+        }
 
-      if (
-        transaction.transaction_type ===
-        "payout"
-      ) {
-        balance -= parseAmount(
-          transaction.amount
-        );
-      }
-    });
+        if (
+          transaction.transaction_type ===
+          "payout"
+        ) {
+          balance -= parseAmount(
+            transaction.amount
+          );
+        }
+      });
 
     return balance;
   }, [
     floatMovements,
     transactions,
+    activeStoreId,
   ]);
 
   /*
@@ -628,8 +629,7 @@ export default function Transactions() {
       : 0;
 
   /*
-   * Automatically populate actual purchase
-   * amount.
+   * Automatically populate actual purchase amount.
    */
   useEffect(() => {
     if (
@@ -650,22 +650,13 @@ export default function Transactions() {
     actualAmountManuallyEdited,
   ]);
 
-  /*
-   * Actual agreed purchase amount.
-   */
   const actualPurchaseAmount =
     parseAmount(actualAmount);
 
-  /*
-   * Purchase adjustment.
-   */
   const purchaseAdjustment =
     actualPurchaseAmount -
     calculatedAmount;
 
-  /*
-   * Outstanding balance for new transaction.
-   */
   const newTransactionBalance =
     Math.max(
       actualPurchaseAmount -
@@ -707,14 +698,6 @@ export default function Transactions() {
   const startPartialPayment = (
     receipt
   ) => {
-    /*
-     * A receipt itself can originate from a
-     * previously locked purchase. That does not
-     * automatically mean every future date is
-     * locked.
-     *
-     * The payment date is checked separately.
-     */
     setPaymentMode(true);
     setSelectedReceipt(receipt);
     setPaymentDate(today);
@@ -747,16 +730,8 @@ export default function Transactions() {
     const firstPayment =
       parseAmount(amountPaid);
 
-    /*
-     * Reconciliation check.
-     *
-     * This is intentionally performed again here
-     * rather than relying only on the disabled
-     * button, because the reconciliation could have
-     * happened after the page loaded.
-     */
     const selectedStore =
-      store || storeId;
+      activeStoreId;
 
     const dateIsLocked =
       isDateReconciled(
@@ -770,14 +745,11 @@ export default function Transactions() {
       );
 
       await fetchReconciliations();
-
       return;
     }
 
     if (!selectedStore) {
-      alert(
-        "Please select a store."
-      );
+      alert("Please select a store.");
       return;
     }
 
@@ -835,16 +807,10 @@ export default function Transactions() {
 
     const transaction = {
       receipt_id: receiptId,
-
       date,
-
-      customer_name:
-        customerName,
-
+      customer_name: customerName,
       metal_type: material,
-
-      weight:
-        Number(weight),
+      weight: Number(weight),
 
       karats:
         material === "Gold" &&
@@ -852,36 +818,13 @@ export default function Transactions() {
           ? Number(karats)
           : null,
 
-      /*
-       * Final agreed purchase amount.
-       */
-      amount:
-        finalAmount,
-
-      /*
-       * Amount physically paid today.
-       */
-      amount_paid:
-        firstPayment,
-
-      override_rate_per_gram:
-        currentRate,
-
+      amount: finalAmount,
+      amount_paid: firstPayment,
+      override_rate_per_gram: currentRate,
       notes,
-
-      transaction_type:
-        "purchase",
-
-      user_id:
-        user.id,
-
-      store_id:
-        selectedStore,
-
-      /*
-       * New transactions are unlocked by default.
-       * Reconciliation will set this to true.
-       */
+      transaction_type: "purchase",
+      user_id: user.id,
+      store_id: selectedStore,
       locked: false,
     };
 
@@ -904,7 +847,7 @@ export default function Transactions() {
 
     await Promise.all([
       fetchTransactions(),
-      fetchFloatMovements(),
+      fetchFloatMovements(selectedStore),
       fetchReconciliations(),
     ]);
 
@@ -920,10 +863,6 @@ export default function Transactions() {
         return;
       }
 
-      /*
-       * Check whether the payment date has
-       * already been reconciled.
-       */
       const paymentStore =
         selectedReceipt.store_id;
 
@@ -939,33 +878,6 @@ export default function Transactions() {
         );
 
         await fetchReconciliations();
-
-        return;
-      }
-
-      /*
-       * Also prevent payments against a receipt
-       * whose purchase transaction is itself locked
-       * when the payment is being recorded on the
-       * same locked date.
-       */
-      const receiptTransactions =
-        getReceiptTransactions(
-          selectedReceipt.receipt_id
-        );
-
-      const lockedReceiptTransaction =
-        receiptTransactions.some(
-          (transaction) =>
-            transaction.locked === true &&
-            transaction.date ===
-              paymentDate
-        );
-
-      if (lockedReceiptTransaction) {
-        alert(
-          "This receipt is locked for the selected payment date."
-        );
         return;
       }
 
@@ -1032,24 +944,15 @@ export default function Transactions() {
         override_rate_per_gram:
           selectedReceipt.override_rate_per_gram,
 
-        /*
-         * Payout amount is the amount actually
-         * paid in this payment.
-         */
-        amount:
-          payment,
+        amount: payment,
 
-        amount_paid:
-          payment,
+        amount_paid: payment,
 
-        notes:
-          paymentNotes,
+        notes: paymentNotes,
 
-        transaction_type:
-          "payout",
+        transaction_type: "payout",
 
-        user_id:
-          user.id,
+        user_id: user.id,
 
         store_id:
           selectedReceipt.store_id,
@@ -1076,7 +979,9 @@ export default function Transactions() {
 
       await Promise.all([
         fetchTransactions(),
-        fetchFloatMovements(),
+        fetchFloatMovements(
+          selectedReceipt.store_id
+        ),
         fetchReconciliations(),
       ]);
 
@@ -1096,101 +1001,249 @@ export default function Transactions() {
   };
 
   /*
-   * Delete transaction.
-   *
-   * Reconciled/locked transactions cannot be
-   * deleted.
+   * ============================================================
+   * DELETE LOGIC
+   * ============================================================
    */
-  const deleteTransaction =
-    async (transaction) => {
-      /*
-       * First check the explicit transaction
-       * locked flag.
-       */
-      if (transaction.locked === true) {
-        alert(
-          "This transaction is locked because its day has been reconciled. It cannot be deleted."
+
+  /*
+   * Check whether a transaction is locked.
+   */
+  const isTransactionLocked = (
+    transaction
+  ) => {
+    if (!transaction) {
+      return true;
+    }
+
+    return (
+      transaction.locked === true ||
+      isDateReconciled(
+        transaction.store_id,
+        transaction.date
+      )
+    );
+  };
+
+  /*
+   * Prepare a user-friendly deletion request.
+   *
+   * For purchases with payouts, we don't silently
+   * delete related records.
+   */
+  const requestDelete = (
+    transaction
+  ) => {
+    if (!transaction) {
+      return;
+    }
+
+    if (
+      isTransactionLocked(
+        transaction
+      )
+    ) {
+      alert(
+        `This transaction cannot be deleted.\n\n${transaction.date} has already been reconciled and locked.`
+      );
+
+      return;
+    }
+
+    const receiptTransactions =
+      transaction.receipt_id
+        ? getReceiptTransactions(
+            transaction.receipt_id
+          )
+        : [];
+
+    const payouts =
+      receiptTransactions.filter(
+        (t) =>
+          t.transaction_type ===
+          "payout"
+      );
+
+    /*
+     * If this is a purchase with additional
+     * payments, give the user a clear warning.
+     */
+    if (
+      transaction.transaction_type ===
+        "purchase" &&
+      payouts.length > 0
+    ) {
+      const unlockedPayouts =
+        payouts.filter(
+          (payout) =>
+            !isTransactionLocked(
+              payout
+            )
         );
+
+      const lockedPayouts =
+        payouts.filter((payout) =>
+          isTransactionLocked(
+            payout
+          )
+        );
+
+      if (
+        lockedPayouts.length > 0
+      ) {
+        alert(
+          `This purchase cannot be deleted because it has ${lockedPayouts.length} payment(s) that are locked by reconciliation.`
+        );
+
         return;
       }
 
+      setDeleteTarget({
+        mode: "purchase_with_payments",
+        transaction,
+        payouts: unlockedPayouts,
+      });
+
+      return;
+    }
+
+    if (
+      transaction.transaction_type ===
+      "purchase"
+    ) {
+      setDeleteTarget({
+        mode: "purchase",
+        transaction,
+        payouts: [],
+      });
+
+      return;
+    }
+
+    setDeleteTarget({
+      mode: "payment",
+      transaction,
+      payouts: [],
+    });
+  };
+
+  /*
+   * Actually perform deletion.
+   */
+  const confirmDelete = async () => {
+    if (!deleteTarget) {
+      return;
+    }
+
+    const {
+      mode,
+      transaction,
+      payouts,
+    } = deleteTarget;
+
+    /*
+     * Check again immediately before deleting.
+     *
+     * This protects against the day being reconciled
+     * while the delete confirmation was open.
+     */
+    const allTransactionsToDelete =
+      [
+        transaction,
+        ...(payouts || []),
+      ];
+
+    const newlyLocked =
+      allTransactionsToDelete.some(
+        (item) =>
+          isTransactionLocked(item)
+      );
+
+    if (newlyLocked) {
+      alert(
+        "Deletion cancelled. One or more records have been locked by reconciliation."
+      );
+
+      setDeleteTarget(null);
+      await fetchReconciliations();
+
+      return;
+    }
+
+    setDeleteLoading(true);
+
+    try {
       /*
-       * Also check the reconciliation table.
-       *
-       * This protects against a stale transaction
-       * object if reconciliation happened after
-       * the page was loaded.
+       * If deleting a purchase with payments,
+       * delete the related payout records first.
        */
       if (
-        transaction.store_id &&
-        transaction.date &&
-        isDateReconciled(
-          transaction.store_id,
-          transaction.date
-        )
+        mode ===
+          "purchase_with_payments" &&
+        payouts.length > 0
       ) {
-        alert(
-          `This transaction belongs to a reconciled date (${transaction.date}) and cannot be deleted.`
-        );
-
-        await fetchReconciliations();
-        return;
-      }
-
-      if (
-        transaction.transaction_type ===
-          "purchase" &&
-        transaction.receipt_id
-      ) {
-        const hasPayments =
-          transactions.some(
-            (t) =>
-              t.receipt_id ===
-                transaction.receipt_id &&
-              t.transaction_type ===
-                "payout"
+        const payoutIds =
+          payouts.map(
+            (payout) => payout.id
           );
 
-        if (hasPayments) {
-          alert(
-            "This transaction has partial payments attached to it. Delete the payments first."
+        const {
+          error: payoutError,
+        } = await supabase
+          .from("transactions")
+          .delete()
+          .in(
+            "id",
+            payoutIds
           );
 
-          return;
+        if (payoutError) {
+          throw payoutError;
         }
       }
 
-      const confirmed =
-        window.confirm(
-          "Are you sure you want to delete this transaction?"
+      /*
+       * Delete the main transaction.
+       */
+      const {
+        error: transactionError,
+      } = await supabase
+        .from("transactions")
+        .delete()
+        .eq(
+          "id",
+          transaction.id
         );
 
-      if (!confirmed) {
-        return;
+      if (transactionError) {
+        throw transactionError;
       }
 
-      const { error } =
-        await supabase
-          .from("transactions")
-          .delete()
-          .eq(
-            "id",
-            transaction.id
-          );
-
-      if (error) {
-        console.error(error);
-
-        alert(error.message);
-        return;
-      }
-
+      /*
+       * Refresh everything that could have changed.
+       */
       await Promise.all([
         fetchTransactions(),
-        fetchFloatMovements(),
+        fetchFloatMovements(
+          transaction.store_id
+        ),
         fetchReconciliations(),
       ]);
-    };
+
+      setDeleteTarget(null);
+    } catch (error) {
+      console.error(
+        "Error deleting transaction:",
+        error
+      );
+
+      alert(
+        `The transaction could not be deleted.\n\n${error.message}`
+      );
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
   /*
    * Export history.
@@ -1312,6 +1365,7 @@ export default function Transactions() {
         </h1>
 
         <div className="flex items-center gap-3">
+
           <div className="bg-white border border-gray-200 rounded-xl px-5 py-3 shadow-sm">
             <p className="text-xs text-gray-500">
               Current Float
@@ -1327,6 +1381,18 @@ export default function Transactions() {
               $
               {currentFloat.toFixed(2)}
             </p>
+
+            {role === "admin" && (
+              <p className="text-xs text-gray-400 mt-1">
+                {stores.find(
+                  (s) =>
+                    (s.store_id ||
+                      s.id) ===
+                    activeStoreId
+                )?.name ||
+                  "Selected Store"}
+              </p>
+            )}
           </div>
 
           <button
@@ -1335,6 +1401,7 @@ export default function Transactions() {
           >
             Export CSV
           </button>
+
         </div>
       </div>
 
@@ -1362,6 +1429,44 @@ export default function Transactions() {
         <p className="text-xs text-gray-400">
           Updating float...
         </p>
+      )}
+
+      {/* ADMIN STORE SELECTOR */}
+      {role === "admin" && (
+        <div className="bg-white border border-gray-100 rounded-xl p-4">
+          <label className="text-sm font-medium mb-2 block">
+            Transaction Store
+          </label>
+
+          <select
+            value={store}
+            onChange={(e) =>
+              setStore(e.target.value)
+            }
+            className="border p-3 rounded-lg w-full md:w-80"
+          >
+            <option value="">
+              Select Store
+            </option>
+
+            {stores.map(
+              (storeItem) => {
+                const storeValue =
+                  storeItem.store_id ||
+                  storeItem.id;
+
+                return (
+                  <option
+                    key={storeValue}
+                    value={storeValue}
+                  >
+                    {storeItem.name}
+                  </option>
+                );
+              }
+            )}
+          </select>
+        </div>
       )}
 
       {/* LOCKED DATE WARNING */}
@@ -1444,7 +1549,6 @@ export default function Transactions() {
               className="grid grid-cols-1 md:grid-cols-2 gap-4"
             >
 
-              {/* Receipt */}
               <div className="md:col-span-2">
                 <label className="text-sm font-medium mb-1 block">
                   Receipt
@@ -1465,7 +1569,6 @@ export default function Transactions() {
                 </div>
               </div>
 
-              {/* Payment Date */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Payment Date
@@ -1486,16 +1589,8 @@ export default function Transactions() {
                   }`}
                   required
                 />
-
-                {paymentDateLocked && (
-                  <p className="text-xs text-red-600 mt-1">
-                    This date is reconciled and
-                    locked.
-                  </p>
-                )}
               </div>
 
-              {/* Store */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Store
@@ -1515,7 +1610,6 @@ export default function Transactions() {
                 />
               </div>
 
-              {/* Customer Name */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Customer Name
@@ -1531,7 +1625,6 @@ export default function Transactions() {
                 />
               </div>
 
-              {/* Material */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Material
@@ -1547,7 +1640,6 @@ export default function Transactions() {
                 />
               </div>
 
-              {/* Weight */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Weight
@@ -1564,7 +1656,6 @@ export default function Transactions() {
                 />
               </div>
 
-              {/* Original Amount */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Actual Purchase Amount
@@ -1579,7 +1670,6 @@ export default function Transactions() {
                 />
               </div>
 
-              {/* Outstanding Balance */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Outstanding Balance
@@ -1593,7 +1683,6 @@ export default function Transactions() {
                 </div>
               </div>
 
-              {/* Payment Amount */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Payment Amount
@@ -1625,7 +1714,6 @@ export default function Transactions() {
                 )}
               </div>
 
-              {/* Balance After Payment */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Balance After Payment
@@ -1639,7 +1727,6 @@ export default function Transactions() {
                 </div>
               </div>
 
-              {/* Notes */}
               <div className="md:col-span-2 flex flex-col">
                 <label className="text-sm font-medium mb-1">
                   Notes
@@ -1660,7 +1747,6 @@ export default function Transactions() {
                 />
               </div>
 
-              {/* Save Payment */}
               <button
                 type="submit"
                 disabled={
@@ -1719,43 +1805,57 @@ export default function Transactions() {
                   Store
                 </label>
 
-                <select
-                  value={store}
-                  onChange={(e) =>
-                    setStore(
-                      e.target.value
-                    )
-                  }
-                  className="border p-3 rounded-lg"
-                  disabled={
-                    role !== "admin"
-                  }
-                >
-                  <option value="">
-                    Select Store
-                  </option>
-
-                  {stores.map(
-                    (storeItem) => {
-                      const storeValue =
-                        storeItem.store_id ||
-                        storeItem.id;
-
-                      return (
-                        <option
-                          key={
-                            storeValue
-                          }
-                          value={
-                            storeValue
-                          }
-                        >
-                          {storeItem.name}
-                        </option>
-                      );
+                {role === "admin" ? (
+                  <select
+                    value={store}
+                    onChange={(e) =>
+                      setStore(
+                        e.target.value
+                      )
                     }
-                  )}
-                </select>
+                    className="border p-3 rounded-lg"
+                  >
+                    <option value="">
+                      Select Store
+                    </option>
+
+                    {stores.map(
+                      (storeItem) => {
+                        const storeValue =
+                          storeItem.store_id ||
+                          storeItem.id;
+
+                        return (
+                          <option
+                            key={
+                              storeValue
+                            }
+                            value={
+                              storeValue
+                            }
+                          >
+                            {
+                              storeItem.name
+                            }
+                          </option>
+                        );
+                      }
+                    )}
+                  </select>
+                ) : (
+                  <input
+                    value={
+                      stores.find(
+                        (s) =>
+                          (s.store_id ||
+                            s.id) ===
+                          activeStoreId
+                      )?.name || ""
+                    }
+                    disabled
+                    className="border p-3 rounded-lg bg-gray-50"
+                  />
+                )}
               </div>
 
               {/* Customer */}
@@ -1775,7 +1875,6 @@ export default function Transactions() {
                     )
                   }
                   className="border p-3 rounded-lg"
-                  // required
                   disabled={
                     currentDateLocked
                   }
@@ -1803,9 +1902,7 @@ export default function Transactions() {
                       "Gold"
                     ) {
                       setKarats("");
-                      setOverrideRate(
-                        ""
-                      );
+                      setOverrideRate("");
                       setRateManuallyOverridden(
                         false
                       );
@@ -1980,11 +2077,6 @@ export default function Transactions() {
                       )}/g`
                     : "Enter weight and select a rate"}
                 </p>
-
-                <p className="text-xs text-gray-400 mt-1">
-                  Suggested value based on
-                  weight and rate.
-                </p>
               </div>
 
               {/* Actual Purchase Amount */}
@@ -2037,11 +2129,6 @@ export default function Transactions() {
                       )}
                     </p>
                   )}
-
-                <p className="text-xs text-gray-400 mt-1">
-                  Enter the actual amount agreed
-                  to pay the customer.
-                </p>
               </div>
 
               {/* Amount Paid */}
@@ -2199,6 +2286,7 @@ export default function Transactions() {
             </div>
           </div>
 
+          {/* OUTSTANDING */}
           {receiptView ===
           "outstanding" ? (
             <div className="p-6">
@@ -2228,9 +2316,22 @@ export default function Transactions() {
                           receipt.receipt_id
                         );
 
+                      const receiptTransactions =
+                        getReceiptTransactions(
+                          receipt.receipt_id
+                        );
+
+                      const payments =
+                        receiptTransactions.filter(
+                          (t) =>
+                            t.transaction_type ===
+                            "payout"
+                        );
+
                       const receiptLocked =
-                        receipt.locked ===
-                        true;
+                        isTransactionLocked(
+                          receipt
+                        );
 
                       return (
                         <div
@@ -2247,7 +2348,8 @@ export default function Transactions() {
                           <div className="flex justify-between gap-4">
 
                             <div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+
                                 <p className="font-medium">
                                   {
                                     receipt.customer_name
@@ -2259,6 +2361,7 @@ export default function Transactions() {
                                     🔒 Locked
                                   </span>
                                 )}
+
                               </div>
 
                               <p className="text-xs text-gray-400 mt-1">
@@ -2281,7 +2384,7 @@ export default function Transactions() {
                               </p>
 
                               <p className="text-xs text-gray-400 mt-1">
-                                Actual Purchase: $
+                                Purchase Amount: $
                                 {parseAmount(
                                   receipt.amount
                                 ).toFixed(
@@ -2289,31 +2392,13 @@ export default function Transactions() {
                                 )}
                               </p>
 
-                              {receipt.weight &&
-                                receipt.override_rate_per_gram && (
-                                  <p className="text-xs text-gray-400 mt-1">
-                                    Calculated: $
-                                    {(
-                                      Number(
-                                        receipt.weight
-                                      ) *
-                                      Number(
-                                        receipt.override_rate_per_gram
-                                      )
-                                    ).toFixed(
-                                      2
-                                    )}
-                                  </p>
-                                )}
+                              <p className="text-xs text-gray-400 mt-1">
+                                Payments Made:{" "}
+                                {
+                                  payments.length
+                                }
+                              </p>
 
-                              {receipt.locked && (
-                                <p className="text-xs text-red-500 mt-1">
-                                  This transaction
-                                  is locked because
-                                  its day has been
-                                  reconciled.
-                                </p>
-                              )}
                             </div>
 
                             <div className="text-right">
@@ -2329,26 +2414,38 @@ export default function Transactions() {
                                 Outstanding
                               </p>
 
-                              <button
-                                onClick={() =>
-                                  startPartialPayment(
-                                    receipt
-                                  )
-                                }
-                                className="bg-yellow-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-yellow-700"
-                              >
-                                Make Payment
-                              </button>                              
-                              <button
-                                onClick={() =>
-                                  onDelete(
-                                    receipt
-                                  )
-                                }
-                                className="bg-red-400 text-black px-4 py-2 rounded-lg hover:text-gray-400"
-                              >
-                                Delete
-                              </button>
+                              <div className="flex flex-col gap-2">
+
+                                <button
+                                  onClick={() =>
+                                    startPartialPayment(
+                                      receipt
+                                    )
+                                  }
+                                  disabled={
+                                    receiptLocked
+                                  }
+                                  className="bg-yellow-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-yellow-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  {receiptLocked
+                                    ? "Receipt Locked"
+                                    : "Make Payment"}
+                                </button>
+
+                                {!receiptLocked && (
+                                  <button
+                                    onClick={() =>
+                                      requestDelete(
+                                        receipt
+                                      )
+                                    }
+                                    className="bg-red-50 text-red-700 border border-red-200 px-3 py-2 rounded-lg text-sm hover:bg-red-100"
+                                  >
+                                    Delete Purchase
+                                  </button>
+                                )}
+
+                              </div>
 
                             </div>
 
@@ -2364,6 +2461,7 @@ export default function Transactions() {
 
             </div>
           ) : (
+            /* HISTORY */
             <div className="p-6">
 
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-5">
@@ -2445,6 +2543,7 @@ export default function Transactions() {
                 </p>
               ) : (
                 <div className="space-y-3 max-h-[600px] overflow-y-auto">
+
                   {historyTransactions.map(
                     (transaction) => (
                       <TransactionRow
@@ -2461,7 +2560,7 @@ export default function Transactions() {
                           parseAmount
                         }
                         onDelete={
-                          deleteTransaction
+                          requestDelete
                         }
                         isDateReconciled={
                           isDateReconciled
@@ -2469,6 +2568,7 @@ export default function Transactions() {
                       />
                     )
                   )}
+
                 </div>
               )}
 
@@ -2477,9 +2577,37 @@ export default function Transactions() {
 
         </div>
       </div>
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {deleteTarget && (
+        <DeleteConfirmationModal
+          deleteTarget={
+            deleteTarget
+          }
+          deleteLoading={
+            deleteLoading
+          }
+          onCancel={() =>
+            !deleteLoading &&
+            setDeleteTarget(null)
+          }
+          onConfirm={
+            confirmDelete
+          }
+          parseAmount={
+            parseAmount
+          }
+        />
+      )}
     </div>
   );
 }
+
+/*
+ * ============================================================
+ * TRANSACTION ROW
+ * ============================================================
+ */
 
 function TransactionRow({
   transaction,
@@ -2497,13 +2625,6 @@ function TransactionRow({
     transaction.transaction_type ===
     "payout";
 
-  /*
-   * A transaction is considered locked if:
-   *
-   * 1. transactions.locked = true
-   * OR
-   * 2. its store/date exists in reconciliations.
-   */
   const reconciled =
     transaction.store_id &&
     transaction.date
@@ -2517,9 +2638,6 @@ function TransactionRow({
     transaction.locked === true ||
     reconciled;
 
-  /*
-   * Reconstruct calculated value.
-   */
   const calculatedValue =
     !isPayout &&
     transaction.weight &&
@@ -2530,10 +2648,6 @@ function TransactionRow({
         )
       : null;
 
-  /*
-   * Difference between calculated value
-   * and actual purchase amount.
-   */
   const purchaseAdjustment =
     calculatedValue !== null
       ? parseAmount(
@@ -2557,7 +2671,8 @@ function TransactionRow({
           <div className="flex items-center gap-2 flex-wrap">
 
             <p className="font-medium">
-              {transaction.customer_name}
+              {transaction.customer_name ||
+                "Customer"}
             </p>
 
             <span
@@ -2612,8 +2727,9 @@ function TransactionRow({
 
           {isLocked && (
             <p className="text-xs text-red-500 mt-2">
-              This transaction is locked because
-              its store/date has been reconciled.
+              This transaction cannot be
+              deleted because its store/date
+              has been reconciled.
             </p>
           )}
 
@@ -2693,19 +2809,21 @@ function TransactionRow({
                 </p>
               )}
 
-            <p
-              className={`text-xs ${
-                balance > 0
-                  ? "text-red-500"
-                  : "text-green-600"
-              }`}
-            >
-              {balance > 0
-                ? `Balance: $${balance.toFixed(
-                    2
-                  )}`
-                : "Paid in Full"}
-            </p>
+            {!isPayout && (
+              <p
+                className={`text-xs ${
+                  balance > 0
+                    ? "text-red-500"
+                    : "text-green-600"
+                }`}
+              >
+                {balance > 0
+                  ? `Balance: $${balance.toFixed(
+                      2
+                    )}`
+                  : "Paid in Full"}
+              </p>
+            )}
 
           </div>
 
@@ -2715,16 +2833,219 @@ function TransactionRow({
             </span>
           ) : (
             <button
+              type="button"
               onClick={() =>
                 onDelete(
                   transaction
                 )
               }
-              className="bg-red-400 text-black px-4 py-2 rounded-lg hover:text-gray-400"
+              className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                isPayout
+                  ? "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+                  : "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+              }`}
             >
-              Delete
+              {isPayout
+                ? "Delete Payment"
+                : "Delete Purchase"}
             </button>
           )}
+
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
+
+/*
+ * ============================================================
+ * DELETE CONFIRMATION MODAL
+ * ============================================================
+ */
+
+function DeleteConfirmationModal({
+  deleteTarget,
+  deleteLoading,
+  onCancel,
+  onConfirm,
+  parseAmount,
+}) {
+  const {
+    mode,
+    transaction,
+    payouts = [],
+  } = deleteTarget;
+
+  const isPurchase =
+    transaction.transaction_type ===
+    "purchase";
+
+  const totalPayments =
+    payouts.reduce(
+      (sum, payout) =>
+        sum +
+        parseAmount(payout.amount),
+      0
+    );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+
+        <div className="p-6 border-b border-gray-100">
+
+          <div className="flex items-start gap-3">
+
+            <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-xl">
+              ⚠️
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold">
+                Confirm Deletion
+              </h3>
+
+              <p className="text-sm text-gray-500 mt-1">
+                This action will change the
+                store's financial records.
+              </p>
+            </div>
+
+          </div>
+
+        </div>
+
+        <div className="p-6 space-y-4">
+
+          <div className="bg-gray-50 rounded-xl p-4">
+
+            <p className="text-sm text-gray-500">
+              Customer
+            </p>
+
+            <p className="font-medium">
+              {transaction.customer_name ||
+                "Customer"}
+            </p>
+
+            <p className="text-sm text-gray-500 mt-2">
+              Receipt
+            </p>
+
+            <p className="font-medium">
+              {transaction.receipt_id ||
+                "No receipt"}
+            </p>
+
+            <p className="text-sm text-gray-500 mt-2">
+              Date
+            </p>
+
+            <p className="font-medium">
+              {transaction.date}
+            </p>
+
+          </div>
+
+          {mode ===
+            "purchase_with_payments" ? (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800">
+
+              <p className="font-semibold">
+                This purchase has{" "}
+                {payouts.length} additional
+                payment
+                {payouts.length !== 1
+                  ? "s"
+                  : ""}.
+              </p>
+
+              <p className="text-sm mt-2">
+                Deleting the purchase will
+                also delete those payment
+                records.
+              </p>
+
+              <div className="mt-3 text-sm">
+
+                <div className="flex justify-between">
+                  <span>
+                    Purchase amount
+                  </span>
+
+                  <span className="font-medium">
+                    $
+                    {parseAmount(
+                      transaction.amount
+                    ).toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span>
+                    Additional payments
+                  </span>
+
+                  <span className="font-medium">
+                    $
+                    {totalPayments.toFixed(
+                      2
+                    )}
+                  </span>
+                </div>
+
+              </div>
+
+            </div>
+          ) : (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-yellow-800">
+
+              <p className="font-semibold">
+                {isPurchase
+                  ? "Delete this purchase?"
+                  : "Delete this payment?"}
+              </p>
+
+              <p className="text-sm mt-1">
+                The record will be removed
+                and the amount will no longer
+                reduce the store float.
+              </p>
+
+            </div>
+          )}
+
+        </div>
+
+        <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
+
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={deleteLoading}
+            className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={deleteLoading}
+            className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            {deleteLoading
+              ? "Deleting..."
+              : mode ===
+                "purchase_with_payments"
+              ? "Delete Purchase & Payments"
+              : isPurchase
+              ? "Delete Purchase"
+              : "Delete Payment"}
+          </button>
 
         </div>
 
