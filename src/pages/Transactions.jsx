@@ -2338,6 +2338,16 @@ export default function Transactions() {
                                 className="bg-yellow-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-yellow-700"
                               >
                                 Make Payment
+                              </button>                              
+                              <button
+                                onClick={() =>
+                                  onDelete(
+                                    receipt
+                                  )
+                                }
+                                className="bg-red-400 text-black px-4 py-2 rounded-lg hover:text-gray-400"
+                              >
+                                Delete
                               </button>
 
                             </div>
@@ -2710,7 +2720,7 @@ function TransactionRow({
                   transaction
                 )
               }
-              className="text-red-500 text-sm hover:text-red-700"
+              className="bg-red-400 text-black px-4 py-2 rounded-lg hover:text-gray-400"
             >
               Delete
             </button>
