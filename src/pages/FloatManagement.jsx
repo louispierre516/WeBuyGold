@@ -4,39 +4,34 @@ import { useStore } from "../context/StoreContext";
 import { supabase } from "../lib/supabase";
 
 export default function FloatManagement() {
-  const today =
-    new Date().toISOString().split("T")[0];
+  const today = new Date().toISOString().split("T")[0];
 
   const { stores } = useStore();
   const { user, role, storeId } = useAuth();
 
-  const [selectedStore, setSelectedStore] =
-    useState(storeId || "");
+  const [selectedStore, setSelectedStore] = useState(
+    storeId || ""
+  );
 
-  const [movements, setMovements] =
-    useState([]);
+  const [movements, setMovements] = useState([]);
+  const [transactions, setTransactions] = useState([]);
 
-  const [transactions, setTransactions] =
-    useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const [loading, setLoading] =
-    useState(true);
-
-  const [saving, setSaving] =
-    useState(false);
+  // Reporting period
+  const [period, setPeriod] = useState("today");
+  const [specificDate, setSpecificDate] = useState(today);
+  const [customStartDate, setCustomStartDate] = useState(today);
+  const [customEndDate, setCustomEndDate] = useState(today);
 
   // Form
   const [movementType, setMovementType] =
     useState("owner_addition");
 
-  const [amount, setAmount] =
-    useState("");
-
-  const [date, setDate] =
-    useState(today);
-
-  const [notes, setNotes] =
-    useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(today);
+  const [notes, setNotes] = useState("");
 
   /*
    * Keep selected store synchronized
@@ -62,6 +57,7 @@ export default function FloatManagement() {
    */
   const fetchFloatData = async () => {
     if (!selectedStore) {
+      setLoading(false);
       return;
     }
 
@@ -100,13 +96,9 @@ export default function FloatManagement() {
         movementsResponse.error
       );
 
-      alert(
-        movementsResponse.error.message
-      );
+      alert(movementsResponse.error.message);
     } else {
-      setMovements(
-        movementsResponse.data || []
-      );
+      setMovements(movementsResponse.data || []);
     }
 
     if (transactionsResponse.error) {
@@ -115,13 +107,9 @@ export default function FloatManagement() {
         transactionsResponse.error
       );
 
-      alert(
-        transactionsResponse.error.message
-      );
+      alert(transactionsResponse.error.message);
     } else {
-      setTransactions(
-        transactionsResponse.data || []
-      );
+      setTransactions(transactionsResponse.data || []);
     }
 
     setLoading(false);
@@ -141,23 +129,193 @@ export default function FloatManagement() {
 
     const number = Number(value);
 
-    return Number.isFinite(number)
-      ? number
-      : 0;
+    return Number.isFinite(number) ? number : 0;
   };
 
   /*
-   * Calculate current float.
+   * Format a date as YYYY-MM-DD using local time.
+   */
+  const formatDate = (dateValue) => {
+    const year = dateValue.getFullYear();
+    const month = String(
+      dateValue.getMonth() + 1
+    ).padStart(2, "0");
+    const day = String(
+      dateValue.getDate()
+    ).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+  };
+
+  /*
+   * Get the date range represented by
+   * the selected reporting period.
+   */
+  const reportingRange = useMemo(() => {
+    const currentDate = new Date();
+
+    const currentYear =
+      currentDate.getFullYear();
+
+    const currentMonth =
+      currentDate.getMonth();
+
+    const currentDay =
+      currentDate.getDate();
+
+    switch (period) {
+      case "today":
+        return {
+          start: today,
+          end: today,
+          label: "Today",
+        };
+
+      case "specific_date":
+        return {
+          start: specificDate,
+          end: specificDate,
+          label: specificDate,
+        };
+
+      case "week": {
+        const dayOfWeek =
+          currentDate.getDay();
+
+        // Sunday = 0, Monday = 1...
+        const startOfWeek =
+          new Date(currentDate);
+
+        startOfWeek.setDate(
+          currentDay - dayOfWeek
+        );
+
+        const endOfWeek =
+          new Date(startOfWeek);
+
+        endOfWeek.setDate(
+          startOfWeek.getDate() + 6
+        );
+
+        return {
+          start: formatDate(startOfWeek),
+          end: formatDate(endOfWeek),
+          label: "This Week",
+        };
+      }
+
+      case "month": {
+        const startOfMonth = new Date(
+          currentYear,
+          currentMonth,
+          1
+        );
+
+        const endOfMonth = new Date(
+          currentYear,
+          currentMonth + 1,
+          0
+        );
+
+        return {
+          start: formatDate(startOfMonth),
+          end: formatDate(endOfMonth),
+          label: "This Month",
+        };
+      }
+
+      case "custom":
+        return {
+          start: customStartDate,
+          end: customEndDate,
+          label: "Custom Range",
+        };
+
+      case "all":
+        return {
+          start: null,
+          end: null,
+          label: "All Time",
+        };
+
+      default:
+        return {
+          start: today,
+          end: today,
+          label: "Today",
+        };
+    }
+  }, [
+    period,
+    specificDate,
+    customStartDate,
+    customEndDate,
+    today,
+  ]);
+
+  /*
+   * Determine whether a date falls
+   * inside the selected reporting period.
+   */
+  const isDateInRange = (dateValue) => {
+    if (!dateValue) {
+      return false;
+    }
+
+    if (
+      reportingRange.start === null ||
+      reportingRange.end === null
+    ) {
+      return true;
+    }
+
+    return (
+      dateValue >= reportingRange.start &&
+      dateValue <= reportingRange.end
+    );
+  };
+
+  /*
+   * Filter movements for the selected period.
+   */
+  const filteredMovements = useMemo(() => {
+    return movements.filter((movement) =>
+      isDateInRange(movement.date)
+    );
+  }, [
+    movements,
+    reportingRange,
+  ]);
+
+  /*
+   * Filter transactions for the selected period.
+   */
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((transaction) =>
+      isDateInRange(transaction.date)
+    );
+  }, [
+    transactions,
+    reportingRange,
+  ]);
+
+  /*
+   * Calculate CURRENT float.
+
+   * This intentionally uses ALL movements and
+   * transactions because Current Float is the
+   * actual current store balance, not a period total.
    */
   const currentFloat = useMemo(() => {
     let balance = 0;
 
     movements.forEach((movement) => {
-      const value =
-        parseAmount(movement.amount);
+      const value = parseAmount(
+        movement.amount
+      );
 
       switch (
-        movement.movement_type
+      movement.movement_type
       ) {
         case "opening_float":
         case "owner_addition":
@@ -207,10 +365,10 @@ export default function FloatManagement() {
   }, [movements, transactions]);
 
   /*
-   * Total owner additions.
+   * Owner additions for selected period.
    */
   const totalAdditions = useMemo(() => {
-    return movements
+    return filteredMovements
       .filter(
         (movement) =>
           movement.movement_type ===
@@ -224,13 +382,13 @@ export default function FloatManagement() {
           ),
         0
       );
-  }, [movements]);
+  }, [filteredMovements]);
 
   /*
-   * Total withdrawals.
+   * Withdrawals for selected period.
    */
   const totalWithdrawals = useMemo(() => {
-    return movements
+    return filteredMovements
       .filter(
         (movement) =>
           movement.movement_type ===
@@ -244,14 +402,14 @@ export default function FloatManagement() {
           ),
         0
       );
-  }, [movements]);
+  }, [filteredMovements]);
 
   /*
-   * Total purchases paid.
+   * Gold purchases paid for selected period.
    */
   const totalPurchasePayments =
     useMemo(() => {
-      return transactions
+      return filteredTransactions
         .filter(
           (transaction) =>
             transaction.transaction_type ===
@@ -265,13 +423,13 @@ export default function FloatManagement() {
             ),
           0
         );
-    }, [transactions]);
+    }, [filteredTransactions]);
 
   /*
-   * Total subsequent payouts.
+   * Customer payouts for selected period.
    */
   const totalPayouts = useMemo(() => {
-    return transactions
+    return filteredTransactions
       .filter(
         (transaction) =>
           transaction.transaction_type ===
@@ -285,7 +443,7 @@ export default function FloatManagement() {
           ),
         0
       );
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   /*
    * Selected store name.
@@ -293,46 +451,34 @@ export default function FloatManagement() {
   const selectedStoreName =
     stores.find(
       (store) =>
-        store.store_id ===
-          selectedStore ||
+        store.store_id === selectedStore ||
         store.id === selectedStore
-    )?.name ||
-    "Selected Store";
+    )?.name || "Selected Store";
 
   /*
    * Add float movement.
    */
-  const saveMovement = async (
-    event
-  ) => {
+  const saveMovement = async (event) => {
     event.preventDefault();
 
     const numericAmount =
       parseAmount(amount);
 
     if (!selectedStore) {
-      alert(
-        "Please select a store."
-      );
+      alert("Please select a store.");
+      return;
+    }
+
+    if (numericAmount <= 0) {
+      alert("Please enter a valid amount.");
       return;
     }
 
     if (
-      numericAmount <= 0
-    ) {
-      alert(
-        "Please enter a valid amount."
-      );
-      return;
-    }
-
-    if (
-      movementType ===
-        "owner_withdrawal" &&
-      numericAmount > currentFloat ||      
-      movementType ===
-        "expense" &&
-      numericAmount > currentFloat 
+      (movementType ===
+        "owner_withdrawal" ||
+        movementType === "expense") &&
+      numericAmount > currentFloat
     ) {
       alert(
         `The withdrawal cannot exceed the current float of $${currentFloat.toFixed(
@@ -345,30 +491,18 @@ export default function FloatManagement() {
     setSaving(true);
 
     const movement = {
-      store_id:
-        selectedStore,
-
-      user_id:
-        user?.id || null,
-
-      amount:
-        numericAmount,
-
-      movement_type:
-        movementType,
-
-      notes:
-        notes.trim() || null,
-
+      store_id: selectedStore,
+      user_id: user?.id || null,
+      amount: numericAmount,
+      movement_type: movementType,
+      notes: notes.trim() || null,
       date,
     };
 
     const { error } =
       await supabase
         .from("float_movements")
-        .insert([
-          movement,
-        ]);
+        .insert([movement]);
 
     if (error) {
       console.error(
@@ -393,14 +527,14 @@ export default function FloatManagement() {
 
   /*
    * Delete a float movement.
-   *
-   * I would eventually restrict this to
-   * admins and preferably use adjustments
-   * instead of deleting accounting records.
    */
   const deleteMovement = async (
     movement
   ) => {
+    if (!movement) {
+      return;
+    }
+
     if (
       !window.confirm(
         "Delete this float movement?"
@@ -431,9 +565,7 @@ export default function FloatManagement() {
   /*
    * Format movement label.
    */
-  const movementLabel = (
-    type
-  ) => {
+  const movementLabel = (type) => {
     switch (type) {
       case "opening_float":
         return "Opening Float";
@@ -459,30 +591,24 @@ export default function FloatManagement() {
    * Determine whether movement
    * increases or decreases float.
    */
-  const movementIsPositive = (
-    type
-  ) => {
+  const movementIsPositive = (type) => {
     return (
-      type ===
-        "opening_float" ||
-      type ===
-        "owner_addition" ||
-      type ===
-        "adjustment"
+      type === "opening_float" ||
+      type === "owner_addition" ||
+      type === "adjustment"
     );
   };
 
   /*
-   * Combined activity.
+   * Combined activity for selected period.
    */
   const activity = useMemo(() => {
     const movementActivity =
-      movements.map(
+      filteredMovements.map(
         (movement) => ({
           id: `movement-${movement.id}`,
 
-          date:
-            movement.date,
+          date: movement.date,
 
           created_at:
             movement.created_at,
@@ -492,109 +618,127 @@ export default function FloatManagement() {
           movementType:
             movement.movement_type,
 
-          label:
-            movementLabel(
-              movement.movement_type
-            ),
+          label: movementLabel(
+            movement.movement_type
+          ),
 
-          amount:
-            parseAmount(
-              movement.amount
-            ),
+          amount: parseAmount(
+            movement.amount
+          ),
 
           positive:
             movementIsPositive(
               movement.movement_type
             ),
 
-          notes:
-            movement.notes,
+          notes: movement.notes,
         })
       );
 
     const transactionActivity =
-      transactions
+      filteredTransactions
         .filter(
           (transaction) =>
             transaction.transaction_type ===
-              "purchase" ||
+            "purchase" ||
             transaction.transaction_type ===
-              "payout"
+            "payout"
         )
-        .map(
-          (transaction) => {
-            const isPurchase =
-              transaction.transaction_type ===
-              "purchase";
+        .map((transaction) => {
+          const isPurchase =
+            transaction.transaction_type ===
+            "purchase";
 
-            const value =
-              isPurchase
-                ? parseAmount(
-                    transaction.amount_paid
-                  )
-                : parseAmount(
-                    transaction.amount
-                  );
+          const value = isPurchase
+            ? parseAmount(
+              transaction.amount_paid
+            )
+            : parseAmount(
+              transaction.amount
+            );
 
-            return {
-              id: `transaction-${transaction.id}`,
+          return {
+            id: `transaction-${transaction.id}`,
 
-              date:
-                transaction.date,
+            date: transaction.date,
 
-              created_at:
-                transaction.created_at,
+            created_at:
+              transaction.created_at,
 
-              type:
-                "transaction",
+            type: "transaction",
 
-              movementType:
-                transaction.transaction_type,
+            movementType:
+              transaction.transaction_type,
 
-              label:
-                isPurchase
-                  ? "Gold Purchase"
-                  : "Customer Payout",
+            label: isPurchase
+              ? "Gold Purchase"
+              : "Customer Payout",
 
-              amount:
-                value,
+            amount: value,
 
-              positive:
-                false,
+            positive: false,
 
-              notes:
-                transaction.notes,
+            notes: transaction.notes,
 
-              customerName:
-                transaction.customer_name,
+            customerName:
+              transaction.customer_name,
 
-              receiptId:
-                transaction.receipt_id,
-            };
-          }
-        );
+            receiptId:
+              transaction.receipt_id,
+          };
+        });
 
     return [
       ...movementActivity,
       ...transactionActivity,
     ].sort((a, b) => {
-      const dateA =
-        `${a.date || ""} ${
-          a.created_at || ""
+      const dateA = `${a.date || ""} ${a.created_at || ""
         }`;
 
-      const dateB =
-        `${b.date || ""} ${
-          b.created_at || ""
+      const dateB = `${b.date || ""} ${b.created_at || ""
         }`;
 
-      return dateB.localeCompare(
-        dateA
-      );
+      return dateB.localeCompare(dateA);
     });
   }, [
-    movements,
-    transactions,
+    filteredMovements,
+    filteredTransactions,
+  ]);
+
+  /*
+   * Display label for the selected period.
+   */
+  const periodDisplayLabel = useMemo(() => {
+    if (period === "today") {
+      return "Today";
+    }
+
+    if (period === "specific_date") {
+      return `Date: ${specificDate}`;
+    }
+
+    if (period === "week") {
+      return "This Week";
+    }
+
+    if (period === "month") {
+      return "This Month";
+    }
+
+    if (period === "custom") {
+      return `${customStartDate} to ${customEndDate}`;
+    }
+
+    if (period === "all") {
+      return "All Time";
+    }
+
+    return "Today";
+  }, [
+    period,
+    specificDate,
+    customStartDate,
+    customEndDate,
   ]);
 
   if (loading) {
@@ -619,14 +763,14 @@ export default function FloatManagement() {
         </h1>
 
         <p className="text-gray-500 mt-1">
-          Manage store cash floats and
-          track every movement of funds.
+          Manage store cash floats and track
+          every movement of funds.
         </p>
       </div>
 
       {/* STORE SELECTOR */}
       {role === "admin" && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="flex flex-col lg:flex-row lg:items-end gap-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
 
           <label className="text-sm font-medium mb-2 block">
             Store
@@ -635,9 +779,7 @@ export default function FloatManagement() {
           <select
             value={selectedStore}
             onChange={(e) =>
-              setSelectedStore(
-                e.target.value
-              )
+              setSelectedStore(e.target.value)
             }
             className="border p-3 rounded-lg w-full md:w-80"
           >
@@ -645,28 +787,149 @@ export default function FloatManagement() {
               Select Store
             </option>
 
-            {stores.map(
-              (store) => (
-                <option
-                  key={
-                    store.store_id ||
-                    store.id
-                  }
-                  value={
-                    store.store_id ||
-                    store.id
-                  }
-                >
-                  {store.name}
-                </option>
-              )
-            )}
+            {stores.map((store) => (
+              <option
+                key={
+                  store.store_id ||
+                  store.id
+                }
+                value={
+                  store.store_id ||
+                  store.id
+                }
+              >
+                {store.name}
+              </option>
+            ))}
           </select>
+
+          {/* REPORTING PERIOD */}
+          <div className="flex-1">
+
+            <label className="text-sm font-medium mb-2 block">
+              Reporting Period
+            </label>
+
+            <select
+              value={period}
+              onChange={(e) =>
+                setPeriod(e.target.value)
+              }
+              className="border p-3 rounded-lg w-full"
+            >
+              <option value="today">
+                Today
+              </option>
+
+              <option value="specific_date">
+                Specific Date
+              </option>
+
+              <option value="week">
+                This Week
+              </option>
+
+              <option value="month">
+                This Month
+              </option>
+
+              <option value="custom">
+                Custom Range
+              </option>
+
+              <option value="all">
+                All Time
+              </option>
+            </select>
+
+          </div>
+
+          {period ===
+            "specific_date" && (
+              <div className="flex-1">
+
+                <label className="text-sm font-medium mb-2 block">
+                  Select Date
+                </label>
+
+                <input
+                  type="date"
+                  value={specificDate}
+                  onChange={(e) =>
+                    setSpecificDate(
+                      e.target.value
+                    )
+                  }
+                  className="border p-3 rounded-lg w-full"
+                />
+
+              </div>
+            )}
+
+          {period === "custom" && (
+            <>
+              <div className="flex-1">
+
+                <label className="text-sm font-medium mb-2 block">
+                  Start Date
+                </label>
+
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) =>
+                    setCustomStartDate(
+                      e.target.value
+                    )
+                  }
+                  className="border p-3 rounded-lg w-full"
+                />
+
+              </div>
+
+              <div className="flex-1">
+
+                <label className="text-sm font-medium mb-2 block">
+                  End Date
+                </label>
+
+                <input
+                  type="date"
+                  value={customEndDate}
+                  min={customStartDate}
+                  onChange={(e) =>
+                    setCustomEndDate(
+                      e.target.value
+                    )
+                  }
+                  className="border p-3 rounded-lg w-full"
+                />
+
+              </div>
+            </>
+          )}
+
+          <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+
+            <p className="text-sm text-gray-500">
+              Showing:
+              <span className="font-medium text-gray-800 ml-1">
+                {periodDisplayLabel}
+              </span>
+            </p>
+
+            <p className="text-xs text-gray-400">
+              Current Float always shows the
+              actual current balance.
+            </p>
+
+          </div>
 
         </div>
       )}
 
-      {/* CURRENT FLOAT */}
+
+      {/* CURRENT FLOAT / PERIOD TOTALS */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
 
         <div className="bg-black text-white rounded-2xl p-6 shadow-sm">
@@ -676,11 +939,10 @@ export default function FloatManagement() {
           </p>
 
           <p
-            className={`text-3xl font-bold mt-2 ${
-              currentFloat < 0
+            className={`text-3xl font-bold mt-2 ${currentFloat < 0
                 ? "text-red-400"
                 : "text-yellow-400"
-            }`}
+              }`}
           >
             $
             {currentFloat.toFixed(2)}
@@ -703,6 +965,10 @@ export default function FloatManagement() {
             {totalAdditions.toFixed(2)}
           </p>
 
+          <p className="text-xs text-gray-400 mt-1">
+            {periodDisplayLabel}
+          </p>
+
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -718,6 +984,10 @@ export default function FloatManagement() {
             )}
           </p>
 
+          <p className="text-xs text-gray-400 mt-1">
+            {periodDisplayLabel}
+          </p>
+
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -729,6 +999,10 @@ export default function FloatManagement() {
           <p className="text-2xl font-semibold text-red-600 mt-2">
             -$
             {totalPayouts.toFixed(2)}
+          </p>
+
+          <p className="text-xs text-gray-400 mt-1">
+            {periodDisplayLabel}
           </p>
 
         </div>
@@ -744,8 +1018,8 @@ export default function FloatManagement() {
           </p>
 
           <p className="text-sm mt-1">
-            Add funds before making
-            additional customer payments.
+            Add funds before making additional
+            customer payments.
           </p>
 
         </div>
@@ -761,8 +1035,8 @@ export default function FloatManagement() {
           </h2>
 
           <p className="text-sm text-gray-500 mt-1">
-            Record money entering or
-            leaving the store float.
+            Record money entering or leaving
+            the store float.
           </p>
 
         </div>
@@ -802,6 +1076,7 @@ export default function FloatManagement() {
               <option value="adjustment">
                 Adjustment
               </option>
+
               <option value="expense">
                 Expense
               </option>
@@ -900,100 +1175,96 @@ export default function FloatManagement() {
           </h2>
 
           <p className="text-sm text-gray-500 mt-1">
-            Every addition, withdrawal,
-            purchase and customer payout.
+            Showing activity for{" "}
+            <span className="font-medium text-gray-700">
+              {periodDisplayLabel}
+            </span>
           </p>
 
         </div>
 
         {activity.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
-            No float activity found.
+            No float activity found for this
+            period.
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
 
-            {activity.map(
-              (item) => (
-                <div
-                  key={item.id}
-                  className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
-                >
+            {activity.map((item) => (
+              <div
+                key={item.id}
+                className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+              >
 
-                  <div>
+                <div>
 
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
 
-                      <p className="font-medium">
-                        {item.label}
-                      </p>
-
-                      <span
-                        className={`text-xs px-2 py-1 rounded-full ${
-                          item.type ===
-                          "movement"
-                            ? "bg-purple-100 text-purple-700"
-                            : "bg-yellow-100 text-yellow-700"
-                        }`}
-                      >
-                        {item.type ===
-                        "movement"
-                          ? "Float"
-                          : "Transaction"}
-                      </span>
-
-                    </div>
-
-                    <p className="text-xs text-gray-400 mt-1">
-                      {item.date}
+                    <p className="font-medium">
+                      {item.label}
                     </p>
 
-                    {item.customerName && (
-                      <p className="text-sm text-gray-500 mt-1">
-                        Customer:{" "}
-                        {
-                          item.customerName
-                        }
-                      </p>
-                    )}
-
-                    {item.receiptId && (
-                      <p className="text-xs text-gray-400">
-                        Receipt:{" "}
-                        {
-                          item.receiptId
-                        }
-                      </p>
-                    )}
-
-                    {item.notes && (
-                      <p className="text-sm text-gray-400 mt-1">
-                        {item.notes}
-                      </p>
-                    )}
+                    <span
+                      className={`text-xs px-2 py-1 rounded-full ${item.type ===
+                          "movement"
+                          ? "bg-purple-100 text-purple-700"
+                          : "bg-yellow-100 text-yellow-700"
+                        }`}
+                    >
+                      {item.type ===
+                        "movement"
+                        ? "Float"
+                        : "Transaction"}
+                    </span>
 
                   </div>
 
-                  <div className="flex items-center gap-4">
+                  <p className="text-xs text-gray-400 mt-1">
+                    {item.date}
+                  </p>
 
-                    <p
-                      className={`font-semibold ${
-                        item.positive
-                          ? "text-green-600"
-                          : "text-red-600"
-                      }`}
-                    >
-                      {item.positive
-                        ? "+"
-                        : "-"}
-                      $
-                      {item.amount.toFixed(
-                        2
-                      )}
+                  {item.customerName && (
+                    <p className="text-sm text-gray-500 mt-1">
+                      Customer:{" "}
+                      {item.customerName}
                     </p>
+                  )}
 
-                    {item.type ===
-                      "movement" && (
+                  {item.receiptId && (
+                    <p className="text-xs text-gray-400">
+                      Receipt:{" "}
+                      {item.receiptId}
+                    </p>
+                  )}
+
+                  {item.notes && (
+                    <p className="text-sm text-gray-400 mt-1">
+                      {item.notes}
+                    </p>
+                  )}
+
+                </div>
+
+                <div className="flex items-center gap-4">
+
+                  <p
+                    className={`font-semibold ${item.positive
+                        ? "text-green-600"
+                        : "text-red-600"
+                      }`}
+                  >
+                    {item.positive
+                      ? "+"
+                      : "-"}
+                    $
+                    {item.amount.toFixed(
+                      2
+                    )}
+                  </p>
+
+                  {item.type ===
+                    "movement" && (
                       <button
                         type="button"
                         onClick={() =>
@@ -1011,11 +1282,10 @@ export default function FloatManagement() {
                       </button>
                     )}
 
-                  </div>
-
                 </div>
-              )
-            )}
+
+              </div>
+            ))}
 
           </div>
         )}
