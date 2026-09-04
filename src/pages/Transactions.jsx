@@ -1385,13 +1385,20 @@ export default function Transactions() {
     selectedReceipt.date &&
     paymentDate < selectedReceipt.date;
 
-  const paymentFormDisabled =
+  // Only hard blockers should disable the payment input itself.
+  // An empty amount parses to 0, so it must NOT disable the input
+  // or the user can never type the first payment amount.
+  const paymentInputDisabled =
     paymentDateLocked ||
     paymentDateBeforePurchase ||
-    parseAmount(paymentAmount) >
-      currentFloat ||
-    parseAmount(paymentAmount) <= 0 ||
     selectedBalance <= 0;
+
+  // Validation that applies when saving the payment.
+  const paymentSubmitDisabled =
+    paymentInputDisabled ||
+    parseAmount(paymentAmount) <= 0 ||
+    parseAmount(paymentAmount) > currentFloat ||
+    parseAmount(paymentAmount) > selectedBalance;
 
   return (
     <div className="space-y-6">
@@ -1798,7 +1805,7 @@ export default function Transactions() {
                   className="border p-3 rounded-lg"
                   required
                   disabled={
-                    paymentFormDisabled
+                    paymentInputDisabled
                   }
                 />
 
@@ -1849,7 +1856,7 @@ export default function Transactions() {
                   }
                   className="border p-3 rounded-lg min-h-[100px]"
                   disabled={
-                    paymentFormDisabled
+                    paymentInputDisabled
                   }
                 />
               </div>
@@ -1857,7 +1864,7 @@ export default function Transactions() {
               <button
                 type="submit"
                 disabled={
-                  paymentFormDisabled
+                  paymentSubmitDisabled
                 }
                 className="md:col-span-2 w-full bg-yellow-600 text-white py-3 rounded-lg hover:bg-yellow-700 transition disabled:opacity-50"
               >
