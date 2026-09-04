@@ -68,19 +68,11 @@ export default function Transactions() {
    * Convert amount safely.
    */
   const parseAmount = (value) => {
-    if (
-      value === null ||
-      value === undefined ||
-      value === ""
-    ) {
+    if (value === null || value === undefined || value === "") {
       return 0;
     }
 
-    const cleaned = String(value).replace(
-      /[^0-9.-]/g,
-      ""
-    );
-
+    const cleaned = String(value).replace(/[^0-9.-]/g, "");
     const parsed = Number(cleaned);
 
     return Number.isFinite(parsed) ? parsed : 0;
@@ -161,15 +153,11 @@ export default function Transactions() {
     }
 
     const matchingRate = karatRates.find(
-      (rate) =>
-        Number(rate.karats) === Number(karats)
+      (rate) => Number(rate.karats) === Number(karats)
     );
 
     if (matchingRate) {
-      setOverrideRate(
-        String(matchingRate.rate_per_gram)
-      );
-
+      setOverrideRate(String(matchingRate.rate_per_gram));
       setRateManuallyOverridden(false);
     } else {
       setOverrideRate("");
@@ -197,10 +185,7 @@ export default function Transactions() {
     const { data, error } = await query;
 
     if (error) {
-      console.error(
-        "Error fetching transactions:",
-        error
-      );
+      console.error("Error fetching transactions:", error);
     } else {
       setTransactions(data || []);
     }
@@ -230,11 +215,7 @@ export default function Transactions() {
     const { data, error } = await query;
 
     if (error) {
-      console.error(
-        "Error fetching reconciliations:",
-        error
-      );
-
+      console.error("Error fetching reconciliations:", error);
       setReconciliations([]);
     } else {
       setReconciliations(data || []);
@@ -246,39 +227,43 @@ export default function Transactions() {
   /*
    * Determine whether a store/date has been reconciled.
    */
-  const isDateReconciled = (
-    storeIdToCheck,
-    dateToCheck
-  ) => {
+  const isDateReconciled = (storeIdToCheck, dateToCheck) => {
     if (!storeIdToCheck || !dateToCheck) {
       return false;
     }
 
     return reconciliations.some(
       (reconciliation) =>
-        reconciliation.store_id ===
-          storeIdToCheck &&
-        reconciliation.date ===
-          dateToCheck
+        reconciliation.store_id === storeIdToCheck &&
+        reconciliation.date === dateToCheck
     );
   };
 
   /*
-   * Locked status for new transaction.
+   * Locked status for NEW transaction.
+   *
+   * This ONLY applies to creating a new transaction
+   * on the selected date.
    */
   const currentDateLocked = useMemo(() => {
-    return isDateReconciled(
-      activeStoreId,
-      date
-    );
-  }, [
-    reconciliations,
-    activeStoreId,
-    date,
-  ]);
+    return isDateReconciled(activeStoreId, date);
+  }, [reconciliations, activeStoreId, date]);
 
   /*
-   * Locked status for selected payment.
+   * IMPORTANT:
+   *
+   * Payment locking is based on the PAYMENT DATE,
+   * NOT the original purchase date.
+   *
+   * This means:
+   *
+   * Purchase: September 1
+   * Reconciled: September 1
+   * Payment: September 4
+   *
+   * The September 1 purchase remains locked, but
+   * the September 4 payment is allowed unless
+   * September 4 itself has been reconciled.
    */
   const paymentDateLocked = useMemo(() => {
     if (!selectedReceipt) {
@@ -289,11 +274,7 @@ export default function Transactions() {
       selectedReceipt.store_id,
       paymentDate
     );
-  }, [
-    reconciliations,
-    selectedReceipt,
-    paymentDate,
-  ]);
+  }, [reconciliations, selectedReceipt, paymentDate]);
 
   /*
    * Fetch float movements for a specific store.
@@ -320,11 +301,7 @@ export default function Transactions() {
       });
 
     if (error) {
-      console.error(
-        "Error fetching float movements:",
-        error
-      );
-
+      console.error("Error fetching float movements:", error);
       setFloatMovements([]);
     } else {
       setFloatMovements(data || []);
@@ -349,11 +326,7 @@ export default function Transactions() {
       });
 
     if (error) {
-      console.error(
-        "Error fetching karat rates:",
-        error
-      );
-
+      console.error("Error fetching karat rates:", error);
       setKaratRates([]);
     } else {
       setKaratRates(data || []);
@@ -366,10 +339,7 @@ export default function Transactions() {
    * Generate receipt number.
    */
   const generateReceiptId = () => {
-    const datePart = date.replaceAll(
-      "-",
-      ""
-    );
+    const datePart = date.replaceAll("-", "");
 
     const sameDayReceipts = new Set(
       transactions
@@ -382,19 +352,29 @@ export default function Transactions() {
         .filter(Boolean)
     );
 
-    const number = String(
-      sameDayReceipts.size + 1
-    ).padStart(3, "0");
+    /*
+     * Find the next available receipt number.
+     *
+     * Using size + 1 can create duplicates if a transaction
+     * was deleted. We instead keep checking until we find
+     * an unused receipt number.
+     */
+    let number = sameDayReceipts.size + 1;
 
-    return `R-${datePart}-${number}`;
+    let receiptId = `R-${datePart}-${String(number).padStart(3, "0")}`;
+
+    while (sameDayReceipts.has(receiptId)) {
+      number += 1;
+      receiptId = `R-${datePart}-${String(number).padStart(3, "0")}`;
+    }
+
+    return receiptId;
   };
 
   /*
    * Get transactions belonging to receipt.
    */
-  const getReceiptTransactions = (
-    receiptId
-  ) => {
+  const getReceiptTransactions = (receiptId) => {
     return transactions.filter(
       (t) => t.receipt_id === receiptId
     );
@@ -402,46 +382,46 @@ export default function Transactions() {
 
   /*
    * Calculate receipt balance.
+   *
+   * IMPORTANT:
+   * This calculation does NOT care whether the original
+   * purchase has been reconciled.
+   *
+   * Payments can continue to be added to a receipt after
+   * the original purchase date has been locked.
    */
-  const getReceiptBalance = (
-    receiptId
-  ) => {
+  const getReceiptBalance = (receiptId) => {
+    if (!receiptId) {
+      return 0;
+    }
+
     const receiptTransactions =
-      getReceiptTransactions(
-        receiptId
-      );
+      getReceiptTransactions(receiptId);
 
     const originalTransaction =
       receiptTransactions.find(
-        (t) =>
-          t.transaction_type ===
-          "purchase"
+        (t) => t.transaction_type === "purchase"
       );
 
     if (!originalTransaction) {
       return 0;
     }
 
-    const originalAmount =
-      parseAmount(
-        originalTransaction.amount
-      );
+    const originalAmount = parseAmount(
+      originalTransaction.amount
+    );
 
-    const initialPayment = Number(
-      originalTransaction.amount_paid ||
-        0
+    const initialPayment = parseAmount(
+      originalTransaction.amount_paid
     );
 
     const additionalPayments =
       receiptTransactions
         .filter(
-          (t) =>
-            t.transaction_type ===
-            "payout"
+          (t) => t.transaction_type === "payout"
         )
         .reduce(
-          (sum, t) =>
-            sum + parseAmount(t.amount),
+          (sum, t) => sum + parseAmount(t.amount),
           0
         );
 
@@ -455,26 +435,29 @@ export default function Transactions() {
 
   /*
    * Outstanding receipts.
+   *
+   * IMPORTANT:
+   * Reconciliation does NOT remove the receipt
+   * from outstanding receipts.
+   *
+   * A reconciled purchase can still have money owed
+   * to the customer.
    */
   const outstandingReceipts = useMemo(() => {
     const receipts = {};
 
     transactions
       .filter(
-        (t) =>
-          t.transaction_type ===
-          "purchase"
+        (t) => t.transaction_type === "purchase"
       )
       .forEach((transaction) => {
-        const balance =
-          getReceiptBalance(
-            transaction.receipt_id
-          );
+        const balance = getReceiptBalance(
+          transaction.receipt_id
+        );
 
         if (balance > 0) {
-          receipts[
-            transaction.receipt_id
-          ] = transaction;
+          receipts[transaction.receipt_id] =
+            transaction;
         }
       });
 
@@ -513,11 +496,8 @@ export default function Transactions() {
     }
 
     if (historyRange === "custom") {
-      fromDate =
-        customFrom || today;
-
-      toDate =
-        customTo || today;
+      fromDate = customFrom || today;
+      toDate = customTo || today;
     }
 
     return transactions.filter(
@@ -535,24 +515,18 @@ export default function Transactions() {
 
   /*
    * ============================================================
-   * CORRECT FLOAT CALCULATION
+   * FLOAT CALCULATION
    * ============================================================
-   *
-   * This now mirrors FloatManagement.jsx exactly.
-   *
-   * IMPORTANT:
-   * expense was missing from the original Transaction.jsx.
    */
   const currentFloat = useMemo(() => {
     let balance = 0;
 
     floatMovements.forEach((movement) => {
-      const amount =
-        parseAmount(movement.amount);
+      const amount = parseAmount(
+        movement.amount
+      );
 
-      switch (
-        movement.movement_type
-      ) {
+      switch (movement.movement_type) {
         case "opening_float":
         case "owner_addition":
           balance += amount;
@@ -572,15 +546,10 @@ export default function Transactions() {
       }
     });
 
-    /*
-     * Only transactions belonging to the active
-     * store should affect this displayed float.
-     */
     transactions
       .filter(
         (transaction) =>
-          transaction.store_id ===
-          activeStoreId
+          transaction.store_id === activeStoreId
       )
       .forEach((transaction) => {
         if (
@@ -679,9 +648,7 @@ export default function Transactions() {
     setStore(storeId || "");
 
     setActualAmount("");
-    setActualAmountManuallyEdited(
-      false
-    );
+    setActualAmountManuallyEdited(false);
 
     setRateManuallyOverridden(false);
 
@@ -694,10 +661,30 @@ export default function Transactions() {
 
   /*
    * Start partial payment.
+   *
+   * IMPORTANT:
+   * We intentionally DO NOT check whether the original
+   * purchase date was reconciled here.
+   *
+   * The purchase can be locked while payments remain
+   * available.
    */
-  const startPartialPayment = (
-    receipt
-  ) => {
+  const startPartialPayment = (receipt) => {
+    if (!receipt) {
+      return;
+    }
+
+    const balance = getReceiptBalance(
+      receipt.receipt_id
+    );
+
+    if (balance <= 0) {
+      alert(
+        "This receipt has already been paid in full."
+      );
+      return;
+    }
+
     setPaymentMode(true);
     setSelectedReceipt(receipt);
     setPaymentDate(today);
@@ -721,23 +708,15 @@ export default function Transactions() {
    * Save initial purchase.
    */
   const savePurchase = async () => {
-    const calculatedValue =
-      calculatedAmount;
+    const calculatedValue = calculatedAmount;
+    const finalAmount = parseAmount(actualAmount);
+    const firstPayment = parseAmount(amountPaid);
+    const selectedStore = activeStoreId;
 
-    const finalAmount =
-      parseAmount(actualAmount);
-
-    const firstPayment =
-      parseAmount(amountPaid);
-
-    const selectedStore =
-      activeStoreId;
-
-    const dateIsLocked =
-      isDateReconciled(
-        selectedStore,
-        date
-      );
+    const dateIsLocked = isDateReconciled(
+      selectedStore,
+      date
+    );
 
     if (dateIsLocked) {
       alert(
@@ -757,9 +736,7 @@ export default function Transactions() {
       Number(weight) <= 0 ||
       !Number.isFinite(Number(weight))
     ) {
-      alert(
-        "Please enter a valid weight."
-      );
+      alert("Please enter a valid weight.");
       return;
     }
 
@@ -802,8 +779,7 @@ export default function Transactions() {
       return;
     }
 
-    const receiptId =
-      generateReceiptId();
+    const receiptId = generateReceiptId();
 
     const transaction = {
       receipt_id: receiptId,
@@ -828,12 +804,9 @@ export default function Transactions() {
       locked: false,
     };
 
-    const { error } =
-      await supabase
-        .from("transactions")
-        .insert([
-          transaction,
-        ]);
+    const { error } = await supabase
+      .from("transactions")
+      .insert([transaction]);
 
     if (error) {
       console.error(
@@ -856,141 +829,169 @@ export default function Transactions() {
 
   /*
    * Save subsequent partial payment.
+   *
+   * IMPORTANT:
+   *
+   * The original purchase date may already be reconciled.
+   * That DOES NOT prevent this payment.
+   *
+   * Only paymentDate being reconciled prevents the payment.
    */
-  const savePartialPayment =
-    async () => {
-      if (!selectedReceipt) {
-        return;
-      }
+  const savePartialPayment = async () => {
+    if (!selectedReceipt) {
+      return;
+    }
 
-      const paymentStore =
-        selectedReceipt.store_id;
+    const paymentStore =
+      selectedReceipt.store_id;
 
-      const dateIsLocked =
-        isDateReconciled(
-          paymentStore,
-          paymentDate
-        );
+    /*
+     * Check the PAYMENT DATE, not the original
+     * purchase date.
+     */
+    const dateIsLocked = isDateReconciled(
+      paymentStore,
+      paymentDate
+    );
 
-      if (dateIsLocked) {
-        alert(
-          `This store/date has already been reconciled and locked.\n\nDate: ${paymentDate}\n\nNo payment can be added to this date.`
-        );
+    if (dateIsLocked) {
+      alert(
+        `This store/date has already been reconciled and locked.\n\nDate: ${paymentDate}\n\nNo payment can be added to this date.`
+      );
 
-        await fetchReconciliations();
-        return;
-      }
+      await fetchReconciliations();
+      return;
+    }
 
-      const currentBalance =
-        getReceiptBalance(
-          selectedReceipt.receipt_id
-        );
+    /*
+     * Do not allow a payment before the original
+     * purchase date.
+     */
+    if (
+      selectedReceipt.date &&
+      paymentDate < selectedReceipt.date
+    ) {
+      alert(
+        `Payment date cannot be before the original purchase date.\n\nPurchase date: ${selectedReceipt.date}\nPayment date: ${paymentDate}`
+      );
+      return;
+    }
 
-      const payment =
-        parseAmount(
-          paymentAmount
-        );
+    /*
+     * Always calculate the balance fresh from the
+     * current transactions.
+     */
+    const currentBalance =
+      getReceiptBalance(
+        selectedReceipt.receipt_id
+      );
 
-      if (payment <= 0) {
-        alert(
-          "Please enter a valid payment amount."
-        );
-        return;
-      }
+    const payment = parseAmount(
+      paymentAmount
+    );
 
-      if (
-        payment >
-        currentBalance
-      ) {
-        alert(
-          `Payment cannot exceed the outstanding balance of $${currentBalance.toFixed(
-            2
-          )}.`
-        );
+    if (payment <= 0) {
+      alert(
+        "Please enter a valid payment amount."
+      );
+      return;
+    }
 
-        return;
-      }
+    if (currentBalance <= 0) {
+      alert(
+        "This receipt has already been paid in full."
+      );
 
-      if (payment > currentFloat) {
-        alert(
-          `This payment would exceed the store's available float.\n\nCurrent float: $${currentFloat.toFixed(
-            2
-          )}\nPayment required: $${payment.toFixed(
-            2
-          )}`
-        );
-
-        return;
-      }
-
-      const transaction = {
-        receipt_id:
-          selectedReceipt.receipt_id,
-
-        date: paymentDate,
-
-        customer_name:
-          selectedReceipt.customer_name,
-
-        metal_type:
-          selectedReceipt.metal_type,
-
-        weight:
-          selectedReceipt.weight,
-
-        karats:
-          selectedReceipt.karats,
-
-        override_rate_per_gram:
-          selectedReceipt.override_rate_per_gram,
-
-        amount: payment,
-
-        amount_paid: payment,
-
-        notes: paymentNotes,
-
-        transaction_type: "payout",
-
-        user_id: user.id,
-
-        store_id:
-          selectedReceipt.store_id,
-
-        locked: false,
-      };
-
-      const { error } =
-        await supabase
-          .from("transactions")
-          .insert([
-            transaction,
-          ]);
-
-      if (error) {
-        console.error(
-          "Error saving payment:",
-          error
-        );
-
-        alert(error.message);
-        return;
-      }
-
-      await Promise.all([
-        fetchTransactions(),
-        fetchFloatMovements(
-          selectedReceipt.store_id
-        ),
-        fetchReconciliations(),
-      ]);
-
+      await fetchTransactions();
       cancelPartialPayment();
+      return;
+    }
+
+    if (payment > currentBalance) {
+      alert(
+        `Payment cannot exceed the outstanding balance of $${currentBalance.toFixed(
+          2
+        )}.`
+      );
+
+      return;
+    }
+
+    if (payment > currentFloat) {
+      alert(
+        `This payment would exceed the store's available float.\n\nCurrent float: $${currentFloat.toFixed(
+          2
+        )}\nPayment required: $${payment.toFixed(
+          2
+        )}`
+      );
+
+      return;
+    }
+
+    const transaction = {
+      receipt_id:
+        selectedReceipt.receipt_id,
+
+      date: paymentDate,
+
+      customer_name:
+        selectedReceipt.customer_name,
+
+      metal_type:
+        selectedReceipt.metal_type,
+
+      weight:
+        selectedReceipt.weight,
+
+      karats:
+        selectedReceipt.karats,
+
+      override_rate_per_gram:
+        selectedReceipt.override_rate_per_gram,
+
+      amount: payment,
+
+      amount_paid: payment,
+
+      notes: paymentNotes,
+
+      transaction_type: "payout",
+
+      user_id: user.id,
+
+      store_id:
+        selectedReceipt.store_id,
+
+      locked: false,
     };
 
-  const handleSubmit = async (
-    e
-  ) => {
+    const { error } = await supabase
+      .from("transactions")
+      .insert([transaction]);
+
+    if (error) {
+      console.error(
+        "Error saving payment:",
+        error
+      );
+
+      alert(error.message);
+      return;
+    }
+
+    await Promise.all([
+      fetchTransactions(),
+      fetchFloatMovements(
+        selectedReceipt.store_id
+      ),
+      fetchReconciliations(),
+    ]);
+
+    cancelPartialPayment();
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (paymentMode) {
@@ -1007,11 +1008,19 @@ export default function Transactions() {
    */
 
   /*
-   * Check whether a transaction is locked.
+   * Check whether a SPECIFIC transaction is locked.
+   *
+   * This is intentionally transaction-specific.
+   *
+   * A purchase can be locked because its purchase date
+   * was reconciled.
+   *
+   * A payout can be locked because ITS payment date
+   * was reconciled.
+   *
+   * Locking one does not automatically lock the other.
    */
-  const isTransactionLocked = (
-    transaction
-  ) => {
+  const isTransactionLocked = (transaction) => {
     if (!transaction) {
       return true;
     }
@@ -1027,24 +1036,37 @@ export default function Transactions() {
 
   /*
    * Prepare a user-friendly deletion request.
-   *
-   * For purchases with payouts, we don't silently
-   * delete related records.
    */
-  const requestDelete = (
-    transaction
-  ) => {
+  const requestDelete = (transaction) => {
     if (!transaction) {
       return;
     }
 
+    /*
+     * A reconciled PURCHASE cannot be deleted.
+     */
     if (
-      isTransactionLocked(
-        transaction
-      )
+      transaction.transaction_type ===
+        "purchase" &&
+      isTransactionLocked(transaction)
     ) {
       alert(
-        `This transaction cannot be deleted.\n\n${transaction.date} has already been reconciled and locked.`
+        `This purchase cannot be deleted.\n\n${transaction.date} has already been reconciled and locked.`
+      );
+
+      return;
+    }
+
+    /*
+     * A reconciled PAYOUT cannot be deleted.
+     */
+    if (
+      transaction.transaction_type ===
+        "payout" &&
+      isTransactionLocked(transaction)
+    ) {
+      alert(
+        `This payment cannot be deleted.\n\n${transaction.date} has already been reconciled and locked.`
       );
 
       return;
@@ -1066,7 +1088,7 @@ export default function Transactions() {
 
     /*
      * If this is a purchase with additional
-     * payments, give the user a clear warning.
+     * payments, don't silently delete related records.
      */
     if (
       transaction.transaction_type ===
@@ -1141,18 +1163,14 @@ export default function Transactions() {
       payouts,
     } = deleteTarget;
 
-    /*
-     * Check again immediately before deleting.
-     *
-     * This protects against the day being reconciled
-     * while the delete confirmation was open.
-     */
-    const allTransactionsToDelete =
-      [
-        transaction,
-        ...(payouts || []),
-      ];
+    const allTransactionsToDelete = [
+      transaction,
+      ...(payouts || []),
+    ];
 
+    /*
+     * Re-check locks immediately before deletion.
+     */
     const newlyLocked =
       allTransactionsToDelete.some(
         (item) =>
@@ -1192,10 +1210,7 @@ export default function Transactions() {
         } = await supabase
           .from("transactions")
           .delete()
-          .in(
-            "id",
-            payoutIds
-          );
+          .in("id", payoutIds);
 
         if (payoutError) {
           throw payoutError;
@@ -1210,10 +1225,7 @@ export default function Transactions() {
       } = await supabase
         .from("transactions")
         .delete()
-        .eq(
-          "id",
-          transaction.id
-        );
+        .eq("id", transaction.id);
 
       if (transactionError) {
         throw transactionError;
@@ -1306,9 +1318,7 @@ export default function Transactions() {
         .join("\n");
 
     const link =
-      document.createElement(
-        "a"
-      );
+      document.createElement("a");
 
     link.setAttribute(
       "href",
@@ -1320,15 +1330,11 @@ export default function Transactions() {
       "transactions.csv"
     );
 
-    document.body.appendChild(
-      link
-    );
+    document.body.appendChild(link);
 
     link.click();
 
-    document.body.removeChild(
-      link
-    );
+    document.body.removeChild(link);
   };
 
   if (loading) {
@@ -1349,15 +1355,46 @@ export default function Transactions() {
   const paymentBalanceAfter =
     Math.max(
       selectedBalance -
-        parseAmount(
-          paymentAmount
-        ),
+        parseAmount(paymentAmount),
       0
     );
 
+  /*
+   * This is deliberately DIFFERENT from
+   * isTransactionLocked(selectedReceipt).
+   *
+   * A locked purchase can still accept a payment.
+   */
+  const selectedPurchaseLocked =
+    selectedReceipt
+      ? isTransactionLocked(
+          selectedReceipt
+        )
+      : false;
+
+  /*
+   * A payment is allowed when:
+   *
+   * 1. The receipt still has a balance.
+   * 2. The payment date isn't reconciled.
+   * 3. The payment isn't before the purchase date.
+   * 4. The payment doesn't exceed float.
+   */
+  const paymentDateBeforePurchase =
+    selectedReceipt &&
+    selectedReceipt.date &&
+    paymentDate < selectedReceipt.date;
+
+  const paymentFormDisabled =
+    paymentDateLocked ||
+    paymentDateBeforePurchase ||
+    parseAmount(paymentAmount) >
+      currentFloat ||
+    parseAmount(paymentAmount) <= 0 ||
+    selectedBalance <= 0;
+
   return (
     <div className="space-y-6">
-
       {/* HEADER */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <h1 className="text-3xl font-semibold tracking-tight">
@@ -1365,7 +1402,6 @@ export default function Transactions() {
         </h1>
 
         <div className="flex items-center gap-3">
-
           <div className="bg-white border border-gray-200 rounded-xl px-5 py-3 shadow-sm">
             <p className="text-xs text-gray-500">
               Current Float
@@ -1378,8 +1414,7 @@ export default function Transactions() {
                   : "text-green-600"
               }`}
             >
-              $
-              {currentFloat.toFixed(2)}
+              ${currentFloat.toFixed(2)}
             </p>
 
             {role === "admin" && (
@@ -1401,7 +1436,6 @@ export default function Transactions() {
           >
             Export CSV
           </button>
-
         </div>
       </div>
 
@@ -1494,6 +1528,7 @@ export default function Transactions() {
           </div>
         )}
 
+      {/* PAYMENT DATE LOCK WARNING */}
       {paymentMode &&
         paymentDateLocked && (
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">
@@ -1517,11 +1552,62 @@ export default function Transactions() {
           </div>
         )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+      {/* ORIGINAL PURCHASE LOCKED BUT PAYMENT STILL AVAILABLE */}
+      {paymentMode &&
+        selectedPurchaseLocked &&
+        !paymentDateLocked && (
+          <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <div className="text-xl">
+                ℹ️
+              </div>
 
+              <div>
+                <p className="font-semibold">
+                  Original Purchase Is Locked
+                </p>
+
+                <p className="text-sm mt-1">
+                  The original purchase date has
+                  already been reconciled. You can
+                  still record a payment because
+                  this payment is being recorded for{" "}
+                  <strong>
+                    {paymentDate}
+                  </strong>
+                  .
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {paymentMode &&
+        paymentDateBeforePurchase && (
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <div className="text-xl">
+                ⚠️
+              </div>
+
+              <div>
+                <p className="font-semibold">
+                  Invalid Payment Date
+                </p>
+
+                <p className="text-sm mt-1">
+                  The payment date cannot be before
+                  the original purchase date of{" "}
+                  {selectedReceipt?.date}.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
         {/* NEW TRANSACTION / PAYMENT */}
         <div className="bg-white p-6 mb-6 rounded-2xl shadow-sm border border-gray-100">
-
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-lg font-medium">
               {paymentMode
@@ -1548,24 +1634,33 @@ export default function Transactions() {
               onSubmit={handleSubmit}
               className="grid grid-cols-1 md:grid-cols-2 gap-4"
             >
-
               <div className="md:col-span-2">
                 <label className="text-sm font-medium mb-1 block">
                   Receipt
                 </label>
 
                 <div className="border p-3 rounded-lg bg-gray-50">
-                  <p className="font-medium">
-                    {
-                      selectedReceipt.receipt_id
-                    }
-                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium">
+                        {
+                          selectedReceipt.receipt_id
+                        }
+                      </p>
 
-                  <p className="text-sm text-gray-500">
-                    {
-                      selectedReceipt.customer_name
-                    }
-                  </p>
+                      <p className="text-sm text-gray-500">
+                        {
+                          selectedReceipt.customer_name
+                        }
+                      </p>
+                    </div>
+
+                    {selectedPurchaseLocked && (
+                      <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-600">
+                        🔒 Original Locked
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1577,13 +1672,18 @@ export default function Transactions() {
                 <input
                   type="date"
                   value={paymentDate}
+                  min={
+                    selectedReceipt.date ||
+                    undefined
+                  }
                   onChange={(e) =>
                     setPaymentDate(
                       e.target.value
                     )
                   }
                   className={`border p-3 rounded-lg ${
-                    paymentDateLocked
+                    paymentDateLocked ||
+                    paymentDateBeforePurchase
                       ? "bg-red-50 border-red-300"
                       : ""
                   }`}
@@ -1676,10 +1776,7 @@ export default function Transactions() {
                 </label>
 
                 <div className="border p-3 rounded-lg bg-red-50 text-red-700 font-semibold">
-                  $
-                  {selectedBalance.toFixed(
-                    2
-                  )}
+                  ${selectedBalance.toFixed(2)}
                 </div>
               </div>
 
@@ -1701,15 +1798,25 @@ export default function Transactions() {
                   className="border p-3 rounded-lg"
                   required
                   disabled={
-                    paymentDateLocked
+                    paymentFormDisabled
                   }
                 />
 
-                {parseAmount(paymentAmount) >
-                  currentFloat && (
+                {parseAmount(
+                  paymentAmount
+                ) > currentFloat && (
                   <p className="text-xs text-red-500 mt-1">
                     Payment exceeds current
                     float.
+                  </p>
+                )}
+
+                {parseAmount(
+                  paymentAmount
+                ) > selectedBalance && (
+                  <p className="text-xs text-red-500 mt-1">
+                    Payment exceeds outstanding
+                    balance.
                   </p>
                 )}
               </div>
@@ -1742,7 +1849,7 @@ export default function Transactions() {
                   }
                   className="border p-3 rounded-lg min-h-[100px]"
                   disabled={
-                    paymentDateLocked
+                    paymentFormDisabled
                   }
                 />
               </div>
@@ -1750,16 +1857,16 @@ export default function Transactions() {
               <button
                 type="submit"
                 disabled={
-                  paymentDateLocked ||
-                  parseAmount(paymentAmount) >
-                    currentFloat ||
-                  parseAmount(paymentAmount) <=
-                    0
+                  paymentFormDisabled
                 }
                 className="md:col-span-2 w-full bg-yellow-600 text-white py-3 rounded-lg hover:bg-yellow-700 transition disabled:opacity-50"
               >
                 {paymentDateLocked
                   ? "Payment Date Locked"
+                  : paymentDateBeforePurchase
+                  ? "Invalid Payment Date"
+                  : selectedBalance <= 0
+                  ? "Paid in Full"
                   : "Save Payment"}
               </button>
             </form>
@@ -1768,7 +1875,6 @@ export default function Transactions() {
               onSubmit={handleSubmit}
               className="grid grid-cols-1 md:grid-cols-2 gap-4"
             >
-
               {/* Date */}
               <div className="flex flex-col">
                 <label className="text-sm font-medium mb-1">
@@ -1779,9 +1885,7 @@ export default function Transactions() {
                   type="date"
                   value={date}
                   onChange={(e) =>
-                    setDate(
-                      e.target.value
-                    )
+                    setDate(e.target.value)
                   }
                   className={`border p-3 rounded-lg ${
                     currentDateLocked
@@ -1866,9 +1970,7 @@ export default function Transactions() {
 
                 <input
                   placeholder="Customer Name"
-                  value={
-                    customerName
-                  }
+                  value={customerName}
                   onChange={(e) =>
                     setCustomerName(
                       e.target.value
@@ -2154,8 +2256,9 @@ export default function Transactions() {
                   }
                 />
 
-                {parseAmount(amountPaid) >
-                  currentFloat && (
+                {parseAmount(
+                  amountPaid
+                ) > currentFloat && (
                   <p className="text-xs text-red-500 mt-1">
                     Amount exceeds current
                     float.
@@ -2216,8 +2319,9 @@ export default function Transactions() {
                 type="submit"
                 disabled={
                   currentDateLocked ||
-                  parseAmount(amountPaid) >
-                    currentFloat ||
+                  parseAmount(
+                    amountPaid
+                  ) > currentFloat ||
                   actualPurchaseAmount <=
                     0
                 }
@@ -2233,10 +2337,8 @@ export default function Transactions() {
 
         {/* OUTSTANDING / HISTORY */}
         <div className="bg-white mb-6 rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-
           <div className="p-4 border-b border-gray-100">
             <div className="bg-gray-100 p-1 rounded-xl flex w-full md:w-fit">
-
               <button
                 type="button"
                 onClick={() =>
@@ -2282,7 +2384,6 @@ export default function Transactions() {
                   }
                 </span>
               </button>
-
             </div>
           </div>
 
@@ -2290,7 +2391,6 @@ export default function Transactions() {
           {receiptView ===
           "outstanding" ? (
             <div className="p-6">
-
               <div className="mb-5">
                 <h2 className="text-lg font-medium">
                   Outstanding Receipts
@@ -2308,7 +2408,6 @@ export default function Transactions() {
                 </div>
               ) : (
                 <div className="space-y-3 max-h-[600px] overflow-y-auto">
-
                   {outstandingReceipts.map(
                     (receipt) => {
                       const balance =
@@ -2328,7 +2427,16 @@ export default function Transactions() {
                             "payout"
                         );
 
-                      const receiptLocked =
+                      /*
+                       * IMPORTANT:
+                       *
+                       * This tells us whether the ORIGINAL
+                       * PURCHASE is locked.
+                       *
+                       * It does NOT mean the receipt cannot
+                       * receive another payment.
+                       */
+                      const originalPurchaseLocked =
                         isTransactionLocked(
                           receipt
                         );
@@ -2339,29 +2447,25 @@ export default function Transactions() {
                             receipt.receipt_id
                           }
                           className={`border rounded-lg p-4 ${
-                            receiptLocked
+                            originalPurchaseLocked
                               ? "bg-gray-50 border-gray-200"
                               : ""
                           }`}
                         >
-
                           <div className="flex justify-between gap-4">
-
                             <div>
                               <div className="flex items-center gap-2 flex-wrap">
-
                                 <p className="font-medium">
                                   {
                                     receipt.customer_name
                                   }
                                 </p>
 
-                                {receiptLocked && (
+                                {originalPurchaseLocked && (
                                   <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-600">
-                                    🔒 Locked
+                                    🔒 Purchase Locked
                                   </span>
                                 )}
-
                               </div>
 
                               <p className="text-xs text-gray-400 mt-1">
@@ -2399,10 +2503,19 @@ export default function Transactions() {
                                 }
                               </p>
 
+                              {originalPurchaseLocked && (
+                                <p className="text-xs text-blue-600 mt-2">
+                                  The original purchase
+                                  is locked, but this
+                                  outstanding balance can
+                                  still be paid on a
+                                  subsequent unlocked
+                                  date.
+                                </p>
+                              )}
                             </div>
 
                             <div className="text-right">
-
                               <p className="font-semibold text-red-600">
                                 $
                                 {balance.toFixed(
@@ -2415,24 +2528,30 @@ export default function Transactions() {
                               </p>
 
                               <div className="flex flex-col gap-2">
-
+                                {/*
+                                 * CRITICAL FIX:
+                                 *
+                                 * Do NOT disable this button
+                                 * just because the original
+                                 * purchase is locked.
+                                 */}
                                 <button
                                   onClick={() =>
                                     startPartialPayment(
                                       receipt
                                     )
                                   }
-                                  disabled={
-                                    receiptLocked
-                                  }
                                   className="bg-yellow-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-yellow-700 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
-                                  {receiptLocked
-                                    ? "Receipt Locked"
-                                    : "Make Payment"}
+                                  Make Payment
                                 </button>
 
-                                {!receiptLocked && (
+                                {/*
+                                 * The original purchase itself
+                                 * cannot be deleted if its date
+                                 * was reconciled.
+                                 */}
+                                {!originalPurchaseLocked && (
                                   <button
                                     onClick={() =>
                                       requestDelete(
@@ -2444,28 +2563,20 @@ export default function Transactions() {
                                     Delete Purchase
                                   </button>
                                 )}
-
                               </div>
-
                             </div>
-
                           </div>
-
                         </div>
                       );
                     }
                   )}
-
                 </div>
               )}
-
             </div>
           ) : (
             /* HISTORY */
             <div className="p-6">
-
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-5">
-
                 <div>
                   <h2 className="text-lg font-medium">
                     Transaction History
@@ -2473,7 +2584,6 @@ export default function Transactions() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-
                   <select
                     value={
                       historyRange
@@ -2532,7 +2642,6 @@ export default function Transactions() {
                       />
                     </>
                   )}
-
                 </div>
               </div>
 
@@ -2543,7 +2652,6 @@ export default function Transactions() {
                 </p>
               ) : (
                 <div className="space-y-3 max-h-[600px] overflow-y-auto">
-
                   {historyTransactions.map(
                     (transaction) => (
                       <TransactionRow
@@ -2568,22 +2676,17 @@ export default function Transactions() {
                       />
                     )
                   )}
-
                 </div>
               )}
-
             </div>
           )}
-
         </div>
       </div>
 
       {/* DELETE CONFIRMATION MODAL */}
       {deleteTarget && (
         <DeleteConfirmationModal
-          deleteTarget={
-            deleteTarget
-          }
+          deleteTarget={deleteTarget}
           deleteLoading={
             deleteLoading
           }
@@ -2663,13 +2766,9 @@ function TransactionRow({
           : ""
       }`}
     >
-
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-
         <div>
-
           <div className="flex items-center gap-2 flex-wrap">
-
             <p className="font-medium">
               {transaction.customer_name ||
                 "Customer"}
@@ -2692,7 +2791,6 @@ function TransactionRow({
                 🔒 Locked
               </span>
             )}
-
           </div>
 
           <div className="text-sm text-gray-500 mt-1">
@@ -2732,13 +2830,10 @@ function TransactionRow({
               has been reconciled.
             </p>
           )}
-
         </div>
 
         <div className="flex items-center gap-5">
-
           <div className="text-right">
-
             <p className="font-semibold">
               {isPayout ? "-" : ""}$
               {parseAmount(
@@ -2758,9 +2853,8 @@ function TransactionRow({
             {!isPayout && (
               <p className="text-xs text-gray-500">
                 Paid Today: $
-                {Number(
-                  transaction.amount_paid ||
-                    0
+                {parseAmount(
+                  transaction.amount_paid
                 ).toFixed(2)}
               </p>
             )}
@@ -2824,7 +2918,6 @@ function TransactionRow({
                   : "Paid in Full"}
               </p>
             )}
-
           </div>
 
           {isLocked ? (
@@ -2839,22 +2932,15 @@ function TransactionRow({
                   transaction
                 )
               }
-              className={`px-4 py-2 rounded-lg text-sm font-medium ${
-                isPayout
-                  ? "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
-                  : "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
-              }`}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
             >
               {isPayout
                 ? "Delete Payment"
                 : "Delete Purchase"}
             </button>
           )}
-
         </div>
-
       </div>
-
     </div>
   );
 }
@@ -2892,13 +2978,9 @@ function DeleteConfirmationModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
-
         <div className="p-6 border-b border-gray-100">
-
           <div className="flex items-start gap-3">
-
             <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-xl">
               ⚠️
             </div>
@@ -2913,15 +2995,11 @@ function DeleteConfirmationModal({
                 store's financial records.
               </p>
             </div>
-
           </div>
-
         </div>
 
         <div className="p-6 space-y-4">
-
           <div className="bg-gray-50 rounded-xl p-4">
-
             <p className="text-sm text-gray-500">
               Customer
             </p>
@@ -2947,13 +3025,11 @@ function DeleteConfirmationModal({
             <p className="font-medium">
               {transaction.date}
             </p>
-
           </div>
 
           {mode ===
             "purchase_with_payments" ? (
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800">
-
               <p className="font-semibold">
                 This purchase has{" "}
                 {payouts.length} additional
@@ -2970,7 +3046,6 @@ function DeleteConfirmationModal({
               </p>
 
               <div className="mt-3 text-sm">
-
                 <div className="flex justify-between">
                   <span>
                     Purchase amount
@@ -2996,13 +3071,10 @@ function DeleteConfirmationModal({
                     )}
                   </span>
                 </div>
-
               </div>
-
             </div>
           ) : (
             <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-yellow-800">
-
               <p className="font-semibold">
                 {isPurchase
                   ? "Delete this purchase?"
@@ -3014,14 +3086,11 @@ function DeleteConfirmationModal({
                 and the amount will no longer
                 reduce the store float.
               </p>
-
             </div>
           )}
-
         </div>
 
         <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
-
           <button
             type="button"
             onClick={onCancel}
@@ -3046,11 +3115,8 @@ function DeleteConfirmationModal({
               ? "Delete Purchase"
               : "Delete Payment"}
           </button>
-
         </div>
-
       </div>
-
     </div>
   );
 }
