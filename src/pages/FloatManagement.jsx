@@ -49,6 +49,8 @@ export default function FloatManagement() {
   useEffect(() => {
     if (selectedStore) {
       fetchFloatData();
+    } else {
+      setLoading(false);
     }
   }, [selectedStore]);
 
@@ -109,7 +111,9 @@ export default function FloatManagement() {
 
       alert(transactionsResponse.error.message);
     } else {
-      setTransactions(transactionsResponse.data || []);
+      setTransactions(
+        transactionsResponse.data || []
+      );
     }
 
     setLoading(false);
@@ -137,9 +141,11 @@ export default function FloatManagement() {
    */
   const formatDate = (dateValue) => {
     const year = dateValue.getFullYear();
+
     const month = String(
       dateValue.getMonth() + 1
     ).padStart(2, "0");
+
     const day = String(
       dateValue.getDate()
     ).padStart(2, "0");
@@ -182,7 +188,6 @@ export default function FloatManagement() {
         const dayOfWeek =
           currentDate.getDay();
 
-        // Sunday = 0, Monday = 1...
         const startOfWeek =
           new Date(currentDate);
 
@@ -282,10 +287,7 @@ export default function FloatManagement() {
     return movements.filter((movement) =>
       isDateInRange(movement.date)
     );
-  }, [
-    movements,
-    reportingRange,
-  ]);
+  }, [movements, reportingRange]);
 
   /*
    * Filter transactions for the selected period.
@@ -294,17 +296,56 @@ export default function FloatManagement() {
     return transactions.filter((transaction) =>
       isDateInRange(transaction.date)
     );
-  }, [
-    transactions,
-    reportingRange,
-  ]);
+  }, [transactions, reportingRange]);
 
   /*
-   * Calculate CURRENT float.
+   * Get the amount actually paid for a transaction.
+   *
+   * Purchases use amount_paid.
+   * Payouts use amount.
+   */
+  const getTransactionPaidAmount = (transaction) => {
+    if (!transaction) {
+      return 0;
+    }
 
+    if (
+      transaction.transaction_type === "purchase"
+    ) {
+      return parseAmount(
+        transaction.amount_paid
+      );
+    }
+
+    if (
+      transaction.transaction_type === "payout"
+    ) {
+      return parseAmount(
+        transaction.amount
+      );
+    }
+
+    return 0;
+  };
+
+  /*
+   * Normalize metal type.
+   */
+  const getMetalType = (transaction) => {
+    return String(
+      transaction?.metal_type || ""
+    ).trim().toLowerCase();
+  };
+
+  /*
+   * Current float.
+   *
    * This intentionally uses ALL movements and
    * transactions because Current Float is the
-   * actual current store balance, not a period total.
+   * actual current store balance.
+   *
+   * Purchases subtract amount_paid.
+   * Customer payouts subtract amount.
    */
   const currentFloat = useMemo(() => {
     let balance = 0;
@@ -315,7 +356,7 @@ export default function FloatManagement() {
       );
 
       switch (
-      movement.movement_type
+        movement.movement_type
       ) {
         case "opening_float":
         case "owner_addition":
@@ -323,15 +364,12 @@ export default function FloatManagement() {
           break;
 
         case "owner_withdrawal":
+        case "expense":
           balance -= value;
           break;
 
         case "adjustment":
           balance += value;
-          break;
-
-        case "expense":
-          balance -= value;
           break;
 
         default:
@@ -385,7 +423,7 @@ export default function FloatManagement() {
   }, [filteredMovements]);
 
   /*
-   * Withdrawals for selected period.
+   * Owner withdrawals for selected period.
    */
   const totalWithdrawals = useMemo(() => {
     return filteredMovements
@@ -405,30 +443,107 @@ export default function FloatManagement() {
   }, [filteredMovements]);
 
   /*
-   * Gold purchases paid for selected period.
+   * Other float expenses.
    */
-  const totalPurchasePayments =
-    useMemo(() => {
-      return filteredTransactions
-        .filter(
-          (transaction) =>
-            transaction.transaction_type ===
-            "purchase"
-        )
-        .reduce(
-          (sum, transaction) =>
-            sum +
-            parseAmount(
-              transaction.amount_paid
-            ),
-          0
-        );
-    }, [filteredTransactions]);
+  const totalExpenses = useMemo(() => {
+    return filteredMovements
+      .filter(
+        (movement) =>
+          movement.movement_type ===
+          "expense"
+      )
+      .reduce(
+        (sum, movement) =>
+          sum +
+          parseAmount(
+            movement.amount
+          ),
+        0
+      );
+  }, [filteredMovements]);
 
   /*
-   * Customer payouts for selected period.
+   * Gold purchase payments.
+   *
+   * Purchases are separated by metal_type.
    */
-  const totalPayouts = useMemo(() => {
+  const totalGoldPurchases = useMemo(() => {
+    return filteredTransactions
+      .filter((transaction) => {
+        return (
+          transaction.transaction_type ===
+            "purchase" &&
+          getMetalType(transaction) ===
+            "gold"
+        );
+      })
+      .reduce(
+        (sum, transaction) =>
+          sum +
+          parseAmount(
+            transaction.amount_paid
+          ),
+        0
+      );
+  }, [filteredTransactions]);
+
+  /*
+   * Silver purchase payments.
+   */
+  const totalSilverPurchases = useMemo(() => {
+    return filteredTransactions
+      .filter((transaction) => {
+        return (
+          transaction.transaction_type ===
+            "purchase" &&
+          getMetalType(transaction) ===
+            "silver"
+        );
+      })
+      .reduce(
+        (sum, transaction) =>
+          sum +
+          parseAmount(
+            transaction.amount_paid
+          ),
+        0
+      );
+  }, [filteredTransactions]);
+
+  /*
+   * Purchases where metal_type is missing
+   * or is not gold/silver.
+   */
+  const totalOtherPurchases = useMemo(() => {
+    return filteredTransactions
+      .filter((transaction) => {
+        const metal =
+          getMetalType(transaction);
+
+        return (
+          transaction.transaction_type ===
+            "purchase" &&
+          metal !== "gold" &&
+          metal !== "silver"
+        );
+      })
+      .reduce(
+        (sum, transaction) =>
+          sum +
+          parseAmount(
+            transaction.amount_paid
+          ),
+        0
+      );
+  }, [filteredTransactions]);
+
+  /*
+   * Total customer payouts.
+   *
+   * Payout transactions use the `amount`
+   * column, not `amount_paid`.
+   */
+  const totalCustomerPayouts = useMemo(() => {
     return filteredTransactions
       .filter(
         (transaction) =>
@@ -444,6 +559,44 @@ export default function FloatManagement() {
         0
       );
   }, [filteredTransactions]);
+
+  /*
+   * Total purchase payments.
+   */
+  const totalPurchasePayments = useMemo(() => {
+    return filteredTransactions
+      .filter(
+        (transaction) =>
+          transaction.transaction_type ===
+          "purchase"
+      )
+      .reduce(
+        (sum, transaction) =>
+          sum +
+          parseAmount(
+            transaction.amount_paid
+          ),
+        0
+      );
+  }, [filteredTransactions]);
+
+  /*
+   * Total money leaving the float
+   * during the selected period.
+   */
+  const totalMoneyOut = useMemo(() => {
+    return (
+      totalPurchasePayments +
+      totalCustomerPayouts +
+      totalExpenses +
+      totalWithdrawals
+    );
+  }, [
+    totalPurchasePayments,
+    totalCustomerPayouts,
+    totalExpenses,
+    totalWithdrawals,
+  ]);
 
   /*
    * Selected store name.
@@ -485,6 +638,7 @@ export default function FloatManagement() {
           2
         )}.`
       );
+
       return;
     }
 
@@ -580,7 +734,7 @@ export default function FloatManagement() {
         return "Adjustment";
 
       case "expense":
-        return "Expense";
+        return "Other Expense";
 
       default:
         return type;
@@ -597,6 +751,38 @@ export default function FloatManagement() {
       type === "owner_addition" ||
       type === "adjustment"
     );
+  };
+
+  /*
+   * Get transaction activity label.
+   */
+  const getTransactionLabel = (transaction) => {
+    if (
+      transaction.transaction_type ===
+      "purchase"
+    ) {
+      const metal =
+        getMetalType(transaction);
+
+      if (metal === "gold") {
+        return "Gold Purchase";
+      }
+
+      if (metal === "silver") {
+        return "Silver Purchase";
+      }
+
+      return "Metal Purchase";
+    }
+
+    if (
+      transaction.transaction_type ===
+      "payout"
+    ) {
+      return "Customer Payout";
+    }
+
+    return "Transaction";
   };
 
   /*
@@ -640,22 +826,19 @@ export default function FloatManagement() {
         .filter(
           (transaction) =>
             transaction.transaction_type ===
-            "purchase" ||
+              "purchase" ||
             transaction.transaction_type ===
-            "payout"
+              "payout"
         )
         .map((transaction) => {
+          const value =
+            getTransactionPaidAmount(
+              transaction
+            );
+
           const isPurchase =
             transaction.transaction_type ===
             "purchase";
-
-          const value = isPurchase
-            ? parseAmount(
-              transaction.amount_paid
-            )
-            : parseAmount(
-              transaction.amount
-            );
 
           return {
             id: `transaction-${transaction.id}`,
@@ -670,9 +853,10 @@ export default function FloatManagement() {
             movementType:
               transaction.transaction_type,
 
-            label: isPurchase
-              ? "Gold Purchase"
-              : "Customer Payout",
+            label:
+              getTransactionLabel(
+                transaction
+              ),
 
             amount: value,
 
@@ -685,6 +869,27 @@ export default function FloatManagement() {
 
             receiptId:
               transaction.receipt_id,
+
+            metalType:
+              transaction.metal_type,
+
+            weight:
+              transaction.weight,
+
+            karats:
+              transaction.karats,
+
+            amountPaid:
+              isPurchase
+                ? parseAmount(
+                    transaction.amount_paid
+                  )
+                : null,
+
+            transactionAmount:
+              parseAmount(
+                transaction.amount
+              ),
           };
         });
 
@@ -692,11 +897,13 @@ export default function FloatManagement() {
       ...movementActivity,
       ...transactionActivity,
     ].sort((a, b) => {
-      const dateA = `${a.date || ""} ${a.created_at || ""
-        }`;
+      const dateA = `${a.date || ""} ${
+        a.created_at || ""
+      }`;
 
-      const dateB = `${b.date || ""} ${b.created_at || ""
-        }`;
+      const dateB = `${b.date || ""} ${
+        b.created_at || ""
+      }`;
 
       return dateB.localeCompare(dateA);
     });
@@ -768,44 +975,44 @@ export default function FloatManagement() {
         </p>
       </div>
 
-      {/* STORE SELECTOR */}
+      {/* STORE SELECTOR / REPORTING PERIOD */}
       {role === "admin" && (
         <div className="flex flex-col lg:flex-row lg:items-end gap-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
 
-          <label className="text-sm font-medium mb-2 block">
-            Store
-          </label>
+          <div>
+            <label className="text-sm font-medium mb-2 block">
+              Store
+            </label>
 
-          <select
-            value={selectedStore}
-            onChange={(e) =>
-              setSelectedStore(e.target.value)
-            }
-            className="border p-3 rounded-lg w-full md:w-80"
-          >
-            <option value="">
-              Select Store
-            </option>
-
-            {stores.map((store) => (
-              <option
-                key={
-                  store.store_id ||
-                  store.id
-                }
-                value={
-                  store.store_id ||
-                  store.id
-                }
-              >
-                {store.name}
+            <select
+              value={selectedStore}
+              onChange={(e) =>
+                setSelectedStore(e.target.value)
+              }
+              className="border p-3 rounded-lg w-full md:w-80"
+            >
+              <option value="">
+                Select Store
               </option>
-            ))}
-          </select>
 
-          {/* REPORTING PERIOD */}
+              {stores.map((store) => (
+                <option
+                  key={
+                    store.store_id ||
+                    store.id
+                  }
+                  value={
+                    store.store_id ||
+                    store.id
+                  }
+                >
+                  {store.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex-1">
-
             <label className="text-sm font-medium mb-2 block">
               Reporting Period
             </label>
@@ -841,35 +1048,30 @@ export default function FloatManagement() {
                 All Time
               </option>
             </select>
-
           </div>
 
-          {period ===
-            "specific_date" && (
-              <div className="flex-1">
+          {period === "specific_date" && (
+            <div className="flex-1">
+              <label className="text-sm font-medium mb-2 block">
+                Select Date
+              </label>
 
-                <label className="text-sm font-medium mb-2 block">
-                  Select Date
-                </label>
-
-                <input
-                  type="date"
-                  value={specificDate}
-                  onChange={(e) =>
-                    setSpecificDate(
-                      e.target.value
-                    )
-                  }
-                  className="border p-3 rounded-lg w-full"
-                />
-
-              </div>
-            )}
+              <input
+                type="date"
+                value={specificDate}
+                onChange={(e) =>
+                  setSpecificDate(
+                    e.target.value
+                  )
+                }
+                className="border p-3 rounded-lg w-full"
+              />
+            </div>
+          )}
 
           {period === "custom" && (
             <>
               <div className="flex-1">
-
                 <label className="text-sm font-medium mb-2 block">
                   Start Date
                 </label>
@@ -884,11 +1086,9 @@ export default function FloatManagement() {
                   }
                   className="border p-3 rounded-lg w-full"
                 />
-
               </div>
 
               <div className="flex-1">
-
                 <label className="text-sm font-medium mb-2 block">
                   End Date
                 </label>
@@ -904,13 +1104,11 @@ export default function FloatManagement() {
                   }
                   className="border p-3 rounded-lg w-full"
                 />
-
               </div>
             </>
           )}
 
-          <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-
+          <div className="lg:col-span-full mt-2">
             <p className="text-sm text-gray-500">
               Showing:
               <span className="font-medium text-gray-800 ml-1">
@@ -918,31 +1116,28 @@ export default function FloatManagement() {
               </span>
             </p>
 
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-400 mt-1">
               Current Float always shows the
               actual current balance.
             </p>
-
           </div>
-
         </div>
       )}
 
-
-      {/* CURRENT FLOAT / PERIOD TOTALS */}
+      {/* CURRENT FLOAT */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
 
         <div className="bg-black text-white rounded-2xl p-6 shadow-sm">
-
           <p className="text-sm text-gray-400">
             Current Float
           </p>
 
           <p
-            className={`text-3xl font-bold mt-2 ${currentFloat < 0
+            className={`text-3xl font-bold mt-2 ${
+              currentFloat < 0
                 ? "text-red-400"
                 : "text-yellow-400"
-              }`}
+            }`}
           >
             $
             {currentFloat.toFixed(2)}
@@ -951,11 +1146,155 @@ export default function FloatManagement() {
           <p className="text-xs text-gray-400 mt-2">
             {selectedStoreName}
           </p>
-
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <p className="text-sm text-gray-500">
+            Customer Payouts
+          </p>
 
+          <p className="text-2xl font-semibold text-red-600 mt-2">
+            -$
+            {totalCustomerPayouts.toFixed(2)}
+          </p>
+
+          <p className="text-xs text-gray-400 mt-1">
+            Direct customer payouts ·{" "}
+            {periodDisplayLabel}
+          </p>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <p className="text-sm text-gray-500">
+            Gold Purchases
+          </p>
+
+          <p className="text-2xl font-semibold text-red-600 mt-2">
+            -$
+            {totalGoldPurchases.toFixed(2)}
+          </p>
+
+          <p className="text-xs text-gray-400 mt-1">
+            Gold purchase payments ·{" "}
+            {periodDisplayLabel}
+          </p>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <p className="text-sm text-gray-500">
+            Silver Purchases
+          </p>
+
+          <p className="text-2xl font-semibold text-red-600 mt-2">
+            -$
+            {totalSilverPurchases.toFixed(2)}
+          </p>
+
+          <p className="text-xs text-gray-400 mt-1">
+            Silver purchase payments ·{" "}
+            {periodDisplayLabel}
+          </p>
+        </div>
+      </div>
+
+      {/* PAYOUT / EXPENSE BREAKDOWN */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
+          <div>
+            <h2 className="text-lg font-medium">
+              Float Outflow Breakdown
+            </h2>
+
+            <p className="text-sm text-gray-500 mt-1">
+              Money paid out of the store float
+              during {periodDisplayLabel.toLowerCase()}.
+            </p>
+          </div>
+
+          <div className="text-right">
+            <p className="text-xs text-gray-400">
+              Total Money Out
+            </p>
+
+            <p className="text-xl font-semibold text-red-600">
+              -$
+              {totalMoneyOut.toFixed(2)}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+
+          <div className="rounded-xl bg-red-50 border border-red-100 p-4">
+            <p className="text-xs text-red-600 font-medium">
+              Customer Payouts
+            </p>
+
+            <p className="text-xl font-semibold text-red-700 mt-1">
+              $
+              {totalCustomerPayouts.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-yellow-50 border border-yellow-100 p-4">
+            <p className="text-xs text-yellow-700 font-medium">
+              Gold Purchases
+            </p>
+
+            <p className="text-xl font-semibold text-yellow-800 mt-1">
+              $
+              {totalGoldPurchases.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 border border-gray-200 p-4">
+            <p className="text-xs text-gray-600 font-medium">
+              Silver Purchases
+            </p>
+
+            <p className="text-xl font-semibold text-gray-800 mt-1">
+              $
+              {totalSilverPurchases.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-orange-50 border border-orange-100 p-4">
+            <p className="text-xs text-orange-700 font-medium">
+              Other Expenses
+            </p>
+
+            <p className="text-xl font-semibold text-orange-800 mt-1">
+              $
+              {totalExpenses.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-purple-50 border border-purple-100 p-4">
+            <p className="text-xs text-purple-700 font-medium">
+              Owner Withdrawals
+            </p>
+
+            <p className="text-xl font-semibold text-purple-800 mt-1">
+              $
+              {totalWithdrawals.toFixed(2)}
+            </p>
+          </div>
+        </div>
+
+        {totalOtherPurchases > 0 && (
+          <div className="mt-4 text-xs text-gray-400">
+            Other/unclassified metal purchase
+            payments: $
+            {totalOtherPurchases.toFixed(2)}
+          </div>
+        )}
+      </div>
+
+      {/* PERIOD INFLOW */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <p className="text-sm text-gray-500">
             Owner Additions
           </p>
@@ -968,51 +1307,27 @@ export default function FloatManagement() {
           <p className="text-xs text-gray-400 mt-1">
             {periodDisplayLabel}
           </p>
-
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-
           <p className="text-sm text-gray-500">
-            Gold Purchases Paid
+            Total Purchase Payments
           </p>
 
           <p className="text-2xl font-semibold text-red-600 mt-2">
             -$
-            {totalPurchasePayments.toFixed(
-              2
-            )}
+            {totalPurchasePayments.toFixed(2)}
           </p>
 
           <p className="text-xs text-gray-400 mt-1">
-            {periodDisplayLabel}
+            Gold + Silver + other metal purchases
           </p>
-
         </div>
-
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-
-          <p className="text-sm text-gray-500">
-            Customer Payouts
-          </p>
-
-          <p className="text-2xl font-semibold text-red-600 mt-2">
-            -$
-            {totalPayouts.toFixed(2)}
-          </p>
-
-          <p className="text-xs text-gray-400 mt-1">
-            {periodDisplayLabel}
-          </p>
-
-        </div>
-
       </div>
 
       {/* NEGATIVE WARNING */}
       {currentFloat < 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-red-800">
-
           <p className="font-semibold">
             Float is below zero.
           </p>
@@ -1021,7 +1336,6 @@ export default function FloatManagement() {
             Add funds before making additional
             customer payments.
           </p>
-
         </div>
       )}
 
@@ -1029,7 +1343,6 @@ export default function FloatManagement() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
 
         <div className="mb-6">
-
           <h2 className="text-lg font-medium">
             Add Float Movement
           </h2>
@@ -1038,7 +1351,6 @@ export default function FloatManagement() {
             Record money entering or leaving
             the store float.
           </p>
-
         </div>
 
         <form
@@ -1047,7 +1359,6 @@ export default function FloatManagement() {
         >
 
           <div className="flex flex-col">
-
             <label className="text-sm font-medium mb-1">
               Movement Type
             </label>
@@ -1078,14 +1389,12 @@ export default function FloatManagement() {
               </option>
 
               <option value="expense">
-                Expense
+                Other Expense
               </option>
             </select>
-
           </div>
 
           <div className="flex flex-col">
-
             <label className="text-sm font-medium mb-1">
               Amount
             </label>
@@ -1104,11 +1413,9 @@ export default function FloatManagement() {
               className="border p-3 rounded-lg"
               required
             />
-
           </div>
 
           <div className="flex flex-col">
-
             <label className="text-sm font-medium mb-1">
               Date
             </label>
@@ -1117,18 +1424,14 @@ export default function FloatManagement() {
               type="date"
               value={date}
               onChange={(e) =>
-                setDate(
-                  e.target.value
-                )
+                setDate(e.target.value)
               }
               className="border p-3 rounded-lg"
               required
             />
-
           </div>
 
           <div className="flex flex-col">
-
             <label className="text-sm font-medium mb-1">
               Notes
             </label>
@@ -1137,18 +1440,14 @@ export default function FloatManagement() {
               type="text"
               value={notes}
               onChange={(e) =>
-                setNotes(
-                  e.target.value
-                )
+                setNotes(e.target.value)
               }
               placeholder="Reason or notes"
               className="border p-3 rounded-lg"
             />
-
           </div>
 
           <div className="md:col-span-2">
-
             <button
               type="submit"
               disabled={saving}
@@ -1158,29 +1457,25 @@ export default function FloatManagement() {
                 ? "Saving..."
                 : "Save Float Movement"}
             </button>
-
           </div>
-
         </form>
-
       </div>
 
       {/* ACTIVITY */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
 
         <div className="p-6 border-b border-gray-100">
-
           <h2 className="text-lg font-medium">
             Float Activity
           </h2>
 
           <p className="text-sm text-gray-500 mt-1">
-            Showing activity for{" "}
+            Detailed transaction and float
+            activity for{" "}
             <span className="font-medium text-gray-700">
               {periodDisplayLabel}
             </span>
           </p>
-
         </div>
 
         {activity.length === 0 ? (
@@ -1194,30 +1489,35 @@ export default function FloatManagement() {
             {activity.map((item) => (
               <div
                 key={item.id}
-                className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                className="p-5 flex flex-col md:flex-row md:items-start md:justify-between gap-4"
               >
 
-                <div>
+                <div className="min-w-0">
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
 
                     <p className="font-medium">
                       {item.label}
                     </p>
 
                     <span
-                      className={`text-xs px-2 py-1 rounded-full ${item.type ===
-                          "movement"
+                      className={`text-xs px-2 py-1 rounded-full ${
+                        item.type === "movement"
                           ? "bg-purple-100 text-purple-700"
                           : "bg-yellow-100 text-yellow-700"
-                        }`}
+                      }`}
                     >
                       {item.type ===
-                        "movement"
+                      "movement"
                         ? "Float"
                         : "Transaction"}
                     </span>
 
+                    {item.metalType && (
+                      <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600 capitalize">
+                        {item.metalType}
+                      </span>
+                    )}
                   </div>
 
                   <p className="text-xs text-gray-400 mt-1">
@@ -1225,73 +1525,106 @@ export default function FloatManagement() {
                   </p>
 
                   {item.customerName && (
-                    <p className="text-sm text-gray-500 mt-1">
-                      Customer:{" "}
+                    <p className="text-sm text-gray-600 mt-2">
+                      <span className="font-medium">
+                        Customer:
+                      </span>{" "}
                       {item.customerName}
                     </p>
                   )}
 
+                  {item.weight !== null &&
+                    item.weight !== undefined && (
+                      <p className="text-sm text-gray-500 mt-1">
+                        <span className="font-medium">
+                          Weight:
+                        </span>{" "}
+                        {item.weight}g
+                        {item.karats !==
+                          null &&
+                          item.karats !==
+                            undefined &&
+                          ` · ${item.karats}K`}
+                      </p>
+                    )}
+
                   {item.receiptId && (
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-gray-400 mt-1">
                       Receipt:{" "}
                       {item.receiptId}
                     </p>
                   )}
+
+                  {item.type ===
+                    "transaction" &&
+                    item.amountPaid !==
+                      null && (
+                      <p className="text-sm text-gray-500 mt-2">
+                        Amount paid: $
+                        {item.amountPaid.toFixed(
+                          2
+                        )}
+                      </p>
+                    )}
 
                   {item.notes && (
                     <p className="text-sm text-gray-400 mt-1">
                       {item.notes}
                     </p>
                   )}
-
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 shrink-0">
 
-                  <p
-                    className={`font-semibold ${item.positive
-                        ? "text-green-600"
-                        : "text-red-600"
+                  <div className="text-right">
+                    <p
+                      className={`font-semibold ${
+                        item.positive
+                          ? "text-green-600"
+                          : "text-red-600"
                       }`}
-                  >
-                    {item.positive
-                      ? "+"
-                      : "-"}
-                    $
-                    {item.amount.toFixed(
-                      2
+                    >
+                      {item.positive
+                        ? "+"
+                        : "-"}
+                      $
+                      {item.amount.toFixed(
+                        2
+                      )}
+                    </p>
+
+                    {item.type ===
+                      "transaction" && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        Paid from float
+                      </p>
                     )}
-                  </p>
+                  </div>
 
                   {item.type ===
                     "movement" && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          deleteMovement(
-                            movements.find(
-                              (movement) =>
-                                `movement-${movement.id}` ===
-                                item.id
-                            )
+                    <button
+                      type="button"
+                      onClick={() =>
+                        deleteMovement(
+                          movements.find(
+                            (movement) =>
+                              `movement-${movement.id}` ===
+                              item.id
                           )
-                        }
-                        className="text-red-500 text-sm hover:text-red-700"
-                      >
-                        Delete
-                      </button>
-                    )}
-
+                        )
+                      }
+                      className="text-red-500 text-sm hover:text-red-700"
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
-
               </div>
             ))}
-
           </div>
         )}
-
       </div>
-
     </div>
   );
 }
